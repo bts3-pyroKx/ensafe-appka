@@ -100,12 +100,9 @@
     const text = await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
     return { data: JSON.parse(text), kB: Math.round(text.length / 1024) };
   }
-  async function fetchDashboard(force) {
-    if (!CAN_GZIP) {
-      const r = await api("getDashboard", force === true);
-      return { r, kB: Math.round(JSON.stringify(r).length / 1024), kBz: undefined, unzip: 0 };
-    }
-    const p = await api("getDashboard", force === true, { z: true });
+  // odpoveď getDashboard (skomprimovaná alebo bežný objekt) → údaje dashboardu
+  async function unpackDashboard(p) {
+    if (!p.z) return { r: p, kB: Math.round(JSON.stringify(p).length / 1024), kBz: undefined, unzip: 0 };
     const t = performance.now(),
       u = await unzipJson(p.z);
     return {
@@ -114,6 +111,13 @@
       kBz: Math.round(p.z.length / 1024),
       unzip: performance.now() - t,
     };
+  }
+  async function fetchDashboard(force) {
+    if (!CAN_GZIP) {
+      const r = await api("getDashboard", force === true);
+      return { r, kB: Math.round(JSON.stringify(r).length / 1024), kBz: undefined, unzip: 0 };
+    }
+    return unpackDashboard(await api("getDashboard", force === true, { z: true }));
   }
   // Indexy sa zostavia raz po načítaní – vyhľadanie zariadenia podľa riadku/názvu je potom okamžité.
   let byRow = new Map(),
@@ -195,7 +199,14 @@
       (data.readOnly ? "Len na čítanie • " : "") +
       "Aktualizované " +
       data.loadedAt +
-      (refreshing ? " · Obnovujem údaje…" : timingLabel ? " · " + timingLabel : "");
+      (refreshing
+        ? " · Obnovujem údaje…"
+        : offline
+          ? " · bez pripojenia, zobrazujem uložené údaje"
+          : timingLabel
+            ? " · " + timingLabel
+            : "");
+    $("loaded").classList.toggle("offline", offline && !refreshing);
   }
   $("loaded").style.cursor = "pointer";
   $("loaded").title = "Klikni pre detail merania rýchlosti";
@@ -247,6 +258,8 @@
     if ($("detail").open && detailRow) detail(detailRow); // otvorený detail ukáže čerstvé údaje
   }
   let refreshing = false,
+    offline = false, // appka: posledná obnova zlyhala pre výpadok spojenia, zobrazené sú uložené údaje
+    lastFresh = 0,
     refreshSeq = 0,
     refreshWaiters = [];
   // Formuláre na zápis sa otvoria až s čerstvými údajmi – inak by predvyplnili stav spred posledného uloženia
@@ -273,6 +286,8 @@
       const net = performance.now() - t - got.unzip,
         tr = performance.now();
       refreshing = false;
+      offline = false;
+      lastFresh = Date.now();
       install(r);
       const draw = performance.now() - tr,
         tm = r.timing || {};
@@ -294,7 +309,17 @@
       updateLoaded();
     } catch (e) {
       if (seq !== refreshSeq) return;
-      if (data) toast("Obnovenie zlyhalo: " + e.message);
+      const off = e.code === "offline";
+      if (off) {
+        // appka bez signálu: uložené údaje ostanú, obnova sa zopakuje sama po návrate spojenia
+        if (data && !offline) toast("Bez pripojenia – zobrazujem uložené údaje z " + data.loadedAt + ".");
+        offline = true;
+      }
+      if (data) {
+        if (!off) toast("Obnovenie zlyhalo: " + e.message);
+      } else if (off)
+        $("content").innerHTML =
+          '<div class="error">Bez pripojenia. V tomto zariadení zatiaľ nie sú uložené žiadne údaje – pripoj sa a klikni na Obnoviť.</div>';
       else
         $("content").innerHTML =
           '<div class="error">Údaje sa nepodarilo načítať. ' +
@@ -1861,7 +1886,24 @@
       $("pairstart").disabled = false;
     }
   });
+  // Appka: najprv údaje uložené v zariadení (hneď, aj bez signálu), potom čerstvé zo servera.
+  async function startApp() {
+    try {
+      const s = await window.APPKA.savedDashboard();
+      if (s && !data) install((await unpackDashboard(s.result)).r);
+    } catch (e) {}
+    refresh();
+    // po návrate spojenia alebo do popredia (po viac než 5 minútach) sa údaje obnovia samy
+    const again = () => {
+      if (!refreshing && !saving && !visitSaving && !editSaving && !doneSaving) refresh(false, "automatická obnova");
+    };
+    window.addEventListener("online", again);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && Date.now() - lastFresh > 300000) again();
+    });
+  }
   if (window.PREVIEW_DATA) {
     $("preview").hidden = false;
     install(window.PREVIEW_DATA);
-  } else refresh();
+  } else if (window.APPKA) startApp();
+  else refresh();
