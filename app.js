@@ -2381,8 +2381,29 @@
     };
     window.addEventListener("online", again);
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible" && Date.now() - lastFresh > 300000) again();
+      if (document.visibilityState === "visible" && (offline || Date.now() - lastFresh > 300000)) again();
     });
+    // Jedno zlyhané načítanie (počítač sa práve zobudil, server neodpovedal včas) nesmie nechať appku „bez pripojenia“
+    // natrvalo: kým je otvorená, skúša to znova sama – po 15 s, potom s dvojnásobnou pauzou, najviac po 5 minútach.
+    // Otvorená appka s pripojením si údaje obnoví každých 10 minút.
+    let retryAt = 0,
+      retryDelay = 15000;
+    setInterval(() => {
+      if (document.visibilityState !== "visible" || refreshing) return;
+      const now = Date.now();
+      if (now < retryAt) return;
+      if (offline) {
+        retryAt = now + retryDelay;
+        retryDelay = Math.min(retryDelay * 2, 300000);
+        again();
+      } else {
+        retryDelay = 15000;
+        if (now - lastFresh > 600000) {
+          retryAt = now + 60000;
+          again();
+        }
+      }
+    }, 5000);
   }
   if (window.PREVIEW_DATA) {
     $("preview").hidden = false;
