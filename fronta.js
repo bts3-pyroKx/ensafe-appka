@@ -6,13 +6,16 @@
      nevykoná dvakrát, ani keď sa odpoveď stratí;
    - pred odoslaním sa načíta čerstvý stav. Ak sa riadok medzitým zmenil inde (iná verzia riadku), zápis sa NEODOŠLE
      a čaká na rozhodnutie: „Odoslať aj tak“ alebo „Zahodiť“. Nič sa ticho neprepíše ani nezahodí;
-   - po vlastnom úspešnom zápise sa ostatným čakajúcim zápisom toho istého riadku posunie verzia (zmenili sme ho my). */
+   - po vlastnom úspešnom zápise sa ostatným čakajúcim zápisom toho istého riadku posunie verzia (zmenili sme ho my);
+   - zápis, ktorý už raz na server odišiel a odpoveď sa stratila (tried), sa pri inej verzii riadku neoznačí za konflikt
+     hneď – riadok sme mohli zmeniť my sami. Pošle sa znova s tým istým číslom a rozhodne server: buď vráti pôvodný
+     výsledok (zápis už prebehol), alebo ho odmietne ako konflikt. */
 (function () {
   "use strict";
   const A = window.APPKA;
   if (!A) return;
   const STOP = ["offline", "server", "busy", "auth", "version", "config"]; // odosielanie sa preruší, zápisy ostanú čakať
-  let items = [], // { id, name, arg, at, state: "wait" | "conflict" | "error", msg }
+  let items = [], // { id, name, arg, at, state: "wait" | "conflict" | "error", msg, tried }
     flushing = false,
     loaded = false;
   const keyOf = (it) => (it.name === "updateCall" ? "d:" : "c:") + it.arg.row;
@@ -77,6 +80,7 @@
         it.arg.version = versionNow(it);
         it.state = "wait";
         it.msg = "";
+        it.tried = false;
       } else return;
       await save();
       paint();
@@ -159,7 +163,7 @@
       }
       for (const it of items.slice()) {
         if (it.state !== "wait") continue;
-        if (it.arg.version !== versionNow(it)) {
+        if (it.arg.version !== versionNow(it) && !it.tried) {
           it.state = "conflict";
           it.msg =
             "Údaje zariadenia sa medzičasom zmenili inde (v tabuľke alebo na inom zariadení). Zápis sa neodoslal.";
@@ -167,6 +171,8 @@
         }
         const others = items.filter((o) => o !== it && o.state === "wait").map((o) => [o, versionNow(o)]);
         try {
+          it.tried = true; // od tejto chvíle mohol zápis na serveri prebehnúť, aj keby odpoveď neprišla
+          await save();
           const r = await A.send(it.name, [it.arg], it.id);
           if (["saveCall", "completeTask", "setStatus"].includes(it.name) && !(r && r.duplicate)) calendar = true;
         } catch (e) {
@@ -220,14 +226,16 @@
   A.write = async function (name, arg) {
     await ready; // fronta zo zariadenia musí byť načítaná, inak by nový zápis predbehol čakajúce
     const id = A.newId();
+    let tried = false;
     if (!items.length) {
       try {
+        tried = true;
         return await A.send(name, [arg], id);
       } catch (e) {
         if (e.code !== "offline" && e.code !== "server") throw e;
       }
     }
-    items.push({ id, name, arg, at: Date.now(), state: "wait", msg: "" });
+    items.push({ id, name, arg, at: Date.now(), state: "wait", msg: "", tried });
     await save();
     paint();
     setTimeout(flush, 1500);
