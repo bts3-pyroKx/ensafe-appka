@@ -68,7 +68,8 @@
       '">' +
       esc(d.status) +
       "</span>" +
-      (d.order && !noOrder ? " " + pill("Objednávka", "success") : "")
+      (d.order && !noOrder ? " " + pill("Objednávka", "success") : "") +
+      (window.APPKA && window.APPKA.pendingFor && window.APPKA.pendingFor(d.name) ? " " + pill("Čaká na odoslanie", "warn") : "")
     );
   }
   function nameButton(d) {
@@ -215,6 +216,7 @@
     const t = performance.now();
     const r = await api(name, arg);
     pendingSave = { name, t, ms: performance.now() - t, timing: (r && r.timing) || {} };
+    if (r && r.queued) return r; // appka bez signálu: zápis čaká v zariadení, na server (ani do kalendára) ešte nešiel
     // zápisy, ktoré môžu zmeniť termín ukážky (stĺpec L) → kalendár sa zosynchronizuje na pozadí (zápis na to nečaká)
     if (CAL_WRITES.includes(name) && !(r && r.duplicate)) syncCalendarLater();
     return r;
@@ -229,6 +231,10 @@
   async function applySaved(r) {
     const p = pendingSave;
     pendingSave = null;
+    if (r && r.queued) {
+      toast("Bez pripojenia – zápis je uložený v zariadení a odošle sa sám, keď budeš online.");
+      return;
+    }
     if (p) {
       logTiming({
         akcia: "uloženie (" + p.name + ")",
@@ -1843,7 +1849,14 @@
   }
   $("devices").addEventListener("click", () => {
     if (window.APPKA) {
-      if (confirm("Odhlásiť toto zariadenie? Appku bude treba znova spárovať z dashboardu.")) window.APPKA.unpair();
+      const n = window.APPKA.pending ? window.APPKA.pending() : 0;
+      if (
+        confirm(
+          (n ? "POZOR: v zariadení čaká " + n + " neodoslaných zápisov – odhlásením sa nenávratne zmažú.\n\n" : "") +
+            "Odhlásiť toto zariadenie? Appku bude treba znova spárovať z dashboardu.",
+        )
+      )
+        window.APPKA.unpair();
       return;
     }
     const ua = navigator.userAgent;
@@ -1895,6 +1908,7 @@
     refresh();
     // po návrate spojenia alebo do popredia (po viac než 5 minútach) sa údaje obnovia samy
     const again = () => {
+      if (window.APPKA.pending && window.APPKA.pending()) return window.APPKA.flush(); // najprv odoslať čakajúce zápisy
       if (!refreshing && !saving && !visitSaving && !editSaving && !doneSaving) refresh(false, "automatická obnova");
     };
     window.addEventListener("online", again);

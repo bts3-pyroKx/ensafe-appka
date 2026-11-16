@@ -1,10 +1,10 @@
 /* Service worker appky: kostra (stránka, skript, štýly, ikony) je uložená v zariadení, takže sa appka otvorí aj
-   bez signálu. Dáta dashboardu tu nie sú – tie rieši appka sama. 5da96421a0 dopĺňa tools/build-pwa.js; nová zostava
+   bez signálu. Dáta dashboardu tu nie sú – tie rieši appka sama. 4b1782b886 dopĺňa tools/build-pwa.js; nová zostava
    = nový súbor = prehliadač ponúkne aktualizáciu. */
-const BUILD = "5da96421a0";
+const BUILD = "4b1782b886";
 const CACHE = "ensafe-kostra-" + BUILD;
 const FONTS = "ensafe-pisma";
-const SHELL = ["./", "config.js", "app.js", "appka.js", "styles.css", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
+const SHELL = ["./", "config.js", "app.js", "appka.js", "fronta.js", "styles.css", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));

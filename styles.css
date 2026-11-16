@@ -805,6 +805,23 @@
 #appkalock h2 {
   margin-top: 0;
 }
+#queuebar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.queueitem {
+  padding: 12px 0;
+  border-bottom: 1px solid #dde5ee;
+}
+.queueitem .quick {
+  margin-top: 8px;
+}
+.queueitem .error {
+  margin: 6px 0;
+}
 #appkaupdate {
   position: fixed;
   left: 12px;

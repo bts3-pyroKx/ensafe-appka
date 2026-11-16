@@ -56,6 +56,7 @@
   const saved = {
     get: (k) => kv("readonly", (s) => s.get(k)).catch(() => undefined),
     set: (k, v) => kv("readwrite", (s) => s.put(v, k)).catch(() => {}),
+    del: (k) => kv("readwrite", (s) => s.delete(k)).catch(() => {}),
     clear: () => kv("readwrite", (s) => s.clear()).catch(() => {}),
   };
   function fail(code, message) {
@@ -103,7 +104,7 @@
   const ready = new Promise((resolve) => (unlock = resolve));
   function forget() {
     store.del(KEY);
-    saved.clear(); // bez platného kľúča v zariadení neostanú ani údaje
+    saved.del("dashboard"); // bez platného kľúča v zariadení neostanú údaje; neodoslané zápisy (fronta) ostávajú
     showLock("Kľúč tohto zariadenia bol zrušený. Spáruj ho znova z dashboardu.");
   }
   function el(tag, props, children) {
@@ -218,8 +219,15 @@
     // volanie servera; zápis dostane jedinečné číslo, podľa ktorého ho server nevykoná dvakrát
     async call(name, args) {
       await ready;
+      // zápisy idú cez frontu (pwa/fronta.js): bez signálu počkajú v zariadení
+      if (WRITES.includes(name) && this.write) return this.write(name, args[0]);
+      return this.send(name, args, WRITES.includes(name) ? uuid() : "");
+    },
+    // jedno volanie servera; rid = číslo zápisu, podľa ktorého ho server nevykoná dvakrát
+    async send(name, args, rid) {
+      await ready;
       const body = { fn: name, args: args || [], token: store.get(KEY) };
-      if (WRITES.includes(name)) body.rid = uuid();
+      if (rid) body.rid = rid;
       const result = await post(body);
       // posledný dashboard si zariadenie uloží (tak, ako prišiel – skomprimovaný)
       if (name === "getDashboard") saved.set("dashboard", { at: Date.now(), result });
@@ -229,6 +237,9 @@
     savedDashboard() {
       return store.get(KEY) ? saved.get("dashboard") : Promise.resolve(undefined);
     },
+    newId: uuid,
+    // neodoslané zápisy; prežijú zatvorenie appky aj zrušenie kľúča, zmažú sa len pri odhlásení zariadenia
+    queueStore: { get: () => saved.get("queue"), set: (list) => saved.set("queue", list) },
     async unpair() {
       try {
         await post({ fn: "unpair", token: store.get(KEY) });
