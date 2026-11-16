@@ -1,0 +1,819 @@
+
+  /* Vizuál podľa Dizajn manuálu PyroKomplex v2.0:
+     biela je základ (70 %), modrá #0B65B3 pre väčšie plochy a akcie (15 %), tmavomodrá #091D3A len na text a tenké
+     línie (10 %), oranžovočervená #DA3C11 iba ako jediný akcent (po termíne, chyba). Písmo Manrope, záložné Arial.
+     Medzery v násobkoch 8 px. */
+  :root {
+    --blue: #0b65b3;
+    --blue-dark: #09528f;
+    --navy: #091d3a;
+    --accent: #da3c11;
+    --ink: #091d3a;
+    --muted: #4b5563;
+    --surface: #f3f5f8;
+    --tone: #e7f0f8;
+    --line: #d5dae1;
+    --bg: #ffffff;
+    --accent-tint: #fcede8;
+    --ok: #1b6b45;
+    --ok-tint: #e3f3ea;
+    --radius: 8px;
+    font-family: Manrope, Arial, Helvetica, sans-serif;
+    color: var(--ink);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    outline-offset: 3px;
+  }
+  :focus-visible {
+    outline: 2px solid var(--blue);
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: wait;
+    opacity: 0.55;
+  }
+  a {
+    color: var(--blue);
+  }
+  .ico {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    vertical-align: -3px;
+  }
+
+  /* ---------- rozloženie: biely bočný panel s logom, obsah na bielej ---------- */
+  .shell {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr);
+    min-height: 100vh;
+  }
+  .sidebar {
+    background: #fff;
+    border-right: 1px solid var(--line);
+    padding: 24px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .brand {
+    padding: 0 8px 16px;
+    border-bottom: 1px solid var(--blue);
+  }
+  .brand .logo {
+    display: block;
+    width: 180px;
+    height: auto;
+  }
+  .brand span {
+    display: block;
+    margin-top: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .sidebar nav {
+    display: grid;
+    gap: 4px;
+  }
+  .nav {
+    border: 0;
+    background: none;
+    color: var(--ink);
+    text-align: left;
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    font-weight: 600;
+    border-left: 3px solid transparent;
+  }
+  .nav:hover {
+    background: var(--surface);
+  }
+  .nav.active {
+    background: var(--tone);
+    color: var(--blue);
+    border-left-color: var(--blue);
+  }
+  .source {
+    margin-top: auto;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 0 8px;
+  }
+  .devices {
+    border: 0;
+    background: none;
+    color: var(--blue);
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 0 8px;
+    text-align: left;
+  }
+  .devices:hover {
+    text-decoration: underline;
+  }
+  .devicerow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .motto {
+    padding: 0 8px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .main {
+    padding: 32px clamp(16px, 3vw, 48px) 48px;
+    min-width: 0;
+  }
+  .top {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 16px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--line);
+  }
+  .top h1 {
+    margin: 0;
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .sub {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* ---------- tlačidlá ---------- */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 9px 16px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--ink);
+    border-radius: var(--radius);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 14px;
+    line-height: 1.4;
+  }
+  .btn:hover {
+    border-color: var(--blue);
+    color: var(--blue);
+  }
+  .primary {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: #fff;
+  }
+  .primary:hover {
+    background: var(--blue-dark);
+    border-color: var(--blue-dark);
+    color: #fff;
+  }
+
+  /* ---------- oznámenia ---------- */
+  .banner {
+    padding: 12px 16px;
+    background: var(--tone);
+    border-left: 3px solid var(--blue);
+    color: var(--ink);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    margin: 0 0 24px;
+    font-size: 14px;
+  }
+  .error {
+    background: var(--accent-tint);
+    border-left: 3px solid var(--accent);
+    padding: 12px 16px;
+    color: #8f2709;
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--blue);
+    color: #fff;
+    padding: 12px 16px;
+    border-radius: var(--radius);
+    max-width: calc(100% - 48px);
+    z-index: 10;
+    font-weight: 500;
+  }
+  .muted {
+    color: var(--muted);
+  }
+  .count {
+    font-size: 13px;
+    color: var(--muted);
+    margin: 0 0 8px;
+  }
+
+  /* ---------- metriky: svetlé plochy bez rámov ---------- */
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .metric {
+    padding: 16px;
+    background: var(--surface);
+    border-radius: var(--radius);
+  }
+  .metric strong {
+    display: block;
+    font-size: 28px;
+    font-weight: 800;
+    line-height: 1.1;
+    margin: 0 0 8px;
+  }
+  .metric span {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.35;
+    display: block;
+  }
+
+  /* ---------- panely: biele, tenká sivá linka ---------- */
+  .grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+    gap: 24px;
+    margin-bottom: 24px;
+  }
+  .panel {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .panelhead {
+    padding: 16px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  h2 {
+    font-size: 17px;
+    font-weight: 700;
+    margin: 0;
+  }
+  .panelhead .btn {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+  .list {
+    padding: 0 24px;
+  }
+  .item {
+    display: flex;
+    gap: 16px;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 1px solid var(--line);
+    padding: 16px 0;
+  }
+  .item:last-child {
+    border: 0;
+  }
+  .item .name {
+    display: block;
+    text-align: left;
+    border: 0;
+    padding: 0;
+    background: none;
+    font-weight: 700;
+    color: var(--ink);
+    font-size: 15px;
+  }
+  .item .name:hover {
+    color: var(--blue);
+  }
+  .item p {
+    margin: 4px 0 0;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .date {
+    min-width: 96px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    text-align: right;
+    line-height: 1.8;
+  }
+  .empty {
+    padding: 24px;
+    color: var(--muted);
+  }
+
+  /* ---------- štítky ---------- */
+  .pill {
+    display: inline-block;
+    white-space: normal;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 999px;
+    background: var(--tone);
+    color: var(--blue);
+    padding: 3px 10px;
+    line-height: 1.5;
+  }
+  .pill.warn {
+    background: #fff6db;
+    color: #7a5b00;
+  }
+  .pill.danger {
+    background: var(--accent-tint);
+    color: var(--accent);
+  }
+  .pill.success {
+    background: var(--ok-tint);
+    color: var(--ok);
+  }
+
+  /* ---------- filtre a formuláre ---------- */
+  .filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    min-width: 150px;
+  }
+  .field.grow {
+    flex: 1;
+  }
+  .field input,
+  .field select,
+  .field textarea {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: #fff;
+    color: var(--ink);
+    min-height: 42px;
+    font-weight: 400;
+    font-size: 14px;
+  }
+  .field input:focus,
+  .field select:focus,
+  .field textarea:focus {
+    border-color: var(--blue);
+    outline: 2px solid var(--tone);
+    outline-offset: 0;
+  }
+  .field textarea {
+    resize: vertical;
+    min-height: 88px;
+  }
+  .field small {
+    font-weight: 400;
+  }
+  .formgrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .full {
+    grid-column: 1/-1;
+  }
+  .formfoot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 24px;
+  }
+  .checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+  }
+  .checkbox input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--blue);
+  }
+  details.more {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 0 16px;
+  }
+  details.more summary {
+    cursor: pointer;
+    padding: 12px 0;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--blue);
+  }
+  details.more[open] {
+    padding-bottom: 16px;
+  }
+  details.more .formgrid {
+    margin-top: 4px;
+  }
+  .quick {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .quick .btn {
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+  .quickcell .quick {
+    flex-wrap: nowrap;
+  }
+  .quickcell .btn {
+    white-space: nowrap;
+  }
+  .check {
+    width: 22px;
+    height: 22px;
+    border: 2px solid #9aa4b2;
+    border-radius: 6px;
+    background: #fff;
+    flex: 0 0 auto;
+    margin-top: 2px;
+    padding: 0;
+  }
+  .check:hover {
+    border-color: var(--ok);
+    background: var(--ok-tint);
+  }
+
+  /* ---------- tabuľky: hlavička s tmavou linkou, riadky tenké sivé linky, bez pásov ---------- */
+  .tablewrap {
+    overflow: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  th {
+    text-align: left;
+    background: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 12px 16px;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--navy);
+  }
+  td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  tbody tr:hover td {
+    background: var(--surface);
+  }
+  td small {
+    display: block;
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  td .link {
+    border: 0;
+    background: none;
+    color: var(--ink);
+    padding: 0;
+    text-align: left;
+    font-weight: 700;
+    font-size: 14px;
+  }
+  td .link:hover {
+    color: var(--blue);
+    text-decoration: underline;
+  }
+
+  /* ---------- grafy: stĺpce modré ---------- */
+  .bars {
+    padding: 16px 24px;
+  }
+  .barrow {
+    display: grid;
+    grid-template-columns: minmax(100px, 1fr) 2fr 32px;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 0;
+    font-size: 13px;
+  }
+  .barrow strong {
+    text-align: right;
+  }
+  .bar {
+    background: var(--surface);
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .bar i {
+    display: block;
+    height: 100%;
+    background: var(--blue);
+    border-radius: 4px;
+  }
+
+  /* ---------- záložky ---------- */
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--line);
+  }
+  .tab {
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: none;
+    color: var(--muted);
+    padding: 8px 12px;
+    margin-bottom: -1px;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .tab:hover {
+    color: var(--blue);
+  }
+  .tab.active {
+    color: var(--blue);
+    border-bottom-color: var(--blue);
+  }
+
+  /* ---------- dialógy ---------- */
+  dialog {
+    border: 0;
+    border-radius: 12px;
+    padding: 0;
+    width: min(880px, calc(100% - 24px));
+    max-height: 92vh;
+    color: var(--ink);
+    box-shadow: 0 16px 48px rgba(9, 29, 58, 0.18);
+  }
+  dialog::backdrop {
+    background: rgba(9, 29, 58, 0.45);
+  }
+  .dialogbody {
+    padding: 24px;
+  }
+  .detailgrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .detailgrid h3 {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 8px;
+  }
+  .detailgrid p {
+    font-size: 14px;
+    margin: 4px 0;
+    overflow-wrap: anywhere;
+  }
+  .detailbox {
+    padding: 16px;
+    background: var(--surface);
+    border-radius: var(--radius);
+  }
+  .contactline {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .contactline .ico {
+    margin-top: 2px;
+  }
+  .notes {
+    white-space: pre-wrap;
+  }
+  .history {
+    margin-top: 24px;
+  }
+  .history h3 {
+    font-size: 15px;
+    font-weight: 700;
+    margin: 0 0 4px;
+  }
+
+  /* ---------- len na čítanie ---------- */
+  body.ro #newcall,
+  body.ro #newvisit,
+  body.ro #source,
+  body.ro #detailstatus,
+  body.ro [data-call],
+  body.ro [data-visit],
+  body.ro [data-editcall],
+  body.ro [data-done],
+  body.ro [data-setstatus],
+  body.ro [data-quick] {
+    display: none !important;
+  }
+  [hidden] {
+    display: none !important;
+  }
+
+  /* ---------- menšie obrazovky ---------- */
+  @media (max-width: 1150px) {
+    .metrics {
+      grid-template-columns: repeat(3, 1fr);
+    }
+    .grid {
+      grid-template-columns: 1fr;
+    }
+    .shell {
+      grid-template-columns: 210px 1fr;
+    }
+    .brand .logo {
+      width: 170px;
+    }
+  }
+  @media (max-width: 720px) {
+    .shell {
+      display: block;
+    }
+    .sidebar {
+      position: static;
+      height: auto;
+      padding: 16px;
+      gap: 12px;
+      border-right: 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .brand {
+      padding: 0 0 12px;
+    }
+    .brand span {
+      display: inline;
+      margin-left: 8px;
+    }
+    .sidebar nav {
+      display: flex;
+      overflow-x: auto;
+      gap: 4px;
+    }
+    .nav {
+      white-space: nowrap;
+      padding: 8px 12px;
+      font-size: 14px;
+      border-left: 0;
+      border-bottom: 2px solid transparent;
+      border-radius: var(--radius) var(--radius) 0 0;
+    }
+    .nav.active {
+      border-bottom-color: var(--blue);
+    }
+    .source,
+    .motto {
+      display: none;
+    }
+    .main {
+      padding: 24px 16px;
+    }
+    .top {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+    .top h1 {
+      font-size: 24px;
+    }
+    .metrics {
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+    .detailgrid,
+    .formgrid {
+      grid-template-columns: 1fr;
+    }
+    .full {
+      grid-column: auto;
+    }
+    .dialogbody {
+      padding: 16px;
+    }
+    .item {
+      gap: 8px;
+    }
+    .date {
+      min-width: 80px;
+    }
+    .filters .field {
+      min-width: calc(50% - 8px);
+      flex: 1;
+    }
+    .filters .grow {
+      min-width: 100%;
+    }
+    .barrow {
+      grid-template-columns: 110px 1fr 28px;
+    }
+    .list,
+    .bars {
+      padding-left: 16px;
+      padding-right: 16px;
+    }
+    .panelhead {
+      padding: 16px;
+    }
+  }
+
+/* Doplnky appky k štýlom dashboardu (src/Styles.html): obrazovka párovania a lišta aktualizácie. */
+#appkalock {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  overflow: auto;
+}
+#appkalock .panel {
+  width: 100%;
+  max-width: 460px;
+}
+#appkalock h2 {
+  margin-top: 0;
+}
+#appkaupdate {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 1001;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  background: #0b65b3;
+  color: #fff;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+}
