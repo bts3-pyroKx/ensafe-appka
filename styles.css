@@ -144,6 +144,14 @@
   .devices:hover {
     text-decoration: underline;
   }
+  .paircode {
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: 4px;
+    color: var(--blue);
+    margin: 8px 0;
+    user-select: all;
+  }
   .devicerow {
     display: flex;
     justify-content: space-between;

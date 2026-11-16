@@ -92,7 +92,7 @@
       bar.innerHTML =
         "<strong>" +
         (flushing
-          ? "Odosielam zápisy zo zariadenia…"
+          ? "Odosielam zápisy zo zariadenia"
           : (w ? w + (w === 1 ? " zápis čaká" : w < 5 ? " zápisy čakajú" : " zápisov čaká") + " na odoslanie" : "") +
             (w && bad ? " · " : "") +
             (bad ? bad + (bad === 1 ? " zápis potrebuje" : " zápisy potrebujú") + " tvoje rozhodnutie" : "")) +

@@ -1886,12 +1886,19 @@
       const r = await api("appPairStart", $("pairform").elements.name.value);
       if (!r.url) throw new Error("Adresa appky ešte nie je nastavená.");
       // odkaz musí otvoriť používateľ sám (okno otvorené po čakaní na server by prehliadač zablokoval)
+      const shown = r.code.slice(0, 4) + "-" + r.code.slice(4);
       $("pairlink").innerHTML =
-        '<p><a class="btn primary" target="_blank" rel="noopener" href="' +
+        '<p class="paircode">' +
+        esc(shown) +
+        '</p><p class="muted"><strong>Iné zariadenie (telefón):</strong> otvor v ňom <strong>' +
+        esc(r.url.replace(/^https?:\/\//, "").replace(/\/$/, "")) +
+        "</strong> a opíš tento kód. Netreba sa tam prihlasovať do Google.</p>" +
+        '<p class="muted"><strong>Toto zariadenie:</strong> <a target="_blank" rel="noopener" href="' +
         esc(r.url + "#pair=" + r.code) +
-        '">Otvoriť appku a spárovať</a></p><p class="muted">Odkaz platí ' +
+        '">otvoriť appku a spárovať</a>.</p><p class="muted">Kód platí ' +
         r.minutes +
-        " minút a len raz. Po otvorení si appku nainštaluj cez ponuku prehliadača („Nainštalovať aplikáciu“ / „Pridať na plochu“).</p>";
+        " minút a len raz. Appku si potom nainštaluj cez ponuku prehliadača („Nainštalovať aplikáciu“ / „Pridať do telefónu“).</p>";
+      loadDevices();
     } catch (err) {
       $("pairerror").textContent = err.message;
       $("pairerror").hidden = false;

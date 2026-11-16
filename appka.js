@@ -115,17 +115,24 @@
   function showLock(message) {
     let box = document.getElementById("appkalock");
     if (box) box.remove();
-    const input = el("input", { name: "code", autocomplete: "off", placeholder: "Párovací odkaz alebo kód" });
+    const input = el("input", {
+      name: "code",
+      autocomplete: "off",
+      autocapitalize: "characters",
+      placeholder: "napr. ABCD-EFGH",
+    });
     const error = el("p", { className: "error", hidden: true });
     const button = el("button", { className: "btn primary", type: "submit", textContent: "Spárovať" });
     const form = el("form", {}, [
-      el("label", { className: "field" }, ["Párovací odkaz alebo kód", input]),
+      el("label", { className: "field" }, ["Párovací kód z dashboardu", input]),
       error,
       el("div", { className: "formfoot" }, [button]),
     ]);
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
-      const m = /[a-f0-9]{32}/.exec(input.value);
+      // celý odkaz (…#pair=KÓD) alebo samotný kód, s pomlčkou aj bez, malými aj veľkými písmenami
+      const typed = input.value.includes("pair=") ? input.value.split("pair=").pop() : input.value;
+      const m = /^[A-HJ-NP-Z2-9]{8}$/.exec(typed.toUpperCase().replace(/[^A-Z0-9]/g, ""));
       if (!m) {
         error.textContent = "Toto nevyzerá ako párovací kód.";
         error.hidden = false;
@@ -149,7 +156,7 @@
           className: "muted",
           textContent:
             message ||
-            "Appka ešte nie je prepojená s dashboardom. V dashboarde otvor „Appka a zariadenia“ a zvoľ „Pripojiť toto zariadenie“ – otvorí sa odkaz, ktorý appku spáruje.",
+            "Appka ešte nie je prepojená s dashboardom. V dashboarde (napr. na počítači) otvor „Appka a zariadenia“, vytvor párovací kód a opíš ho sem. Kód platí 10 minút.",
         }),
         form,
       ]),
@@ -162,7 +169,7 @@
     return r;
   }
   async function start() {
-    const m = /[#&]pair=([a-f0-9]{32})/.exec(location.hash);
+    const m = /[#&]pair=([A-HJ-NP-Z2-9]{8})$/.exec(location.hash);
     if (m) {
       history.replaceState(null, "", location.pathname + location.search); // kód nenechávať v adrese ani v histórii
       try {
