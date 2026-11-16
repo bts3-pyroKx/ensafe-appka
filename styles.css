@@ -144,6 +144,19 @@
   .devices:hover {
     text-decoration: underline;
   }
+  .pairbox {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 8px 0;
+  }
+  .qr {
+    width: 200px;
+    height: 200px;
+    flex: none;
+    border: 1px solid var(--line);
+  }
   .paircode {
     font-size: 34px;
     font-weight: 800;
@@ -388,6 +401,87 @@
   .pill.success {
     background: var(--ok-tint);
     color: var(--ok);
+  }
+
+  /* ---------- mapa zariadení ---------- */
+  .mapgrid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 390px;
+    gap: 24px;
+    align-items: start;
+  }
+  .lmap {
+    height: min(70vh, 680px);
+    min-height: 380px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: #eef2f6;
+    isolation: isolate; /* vrstvy mapy neprekryjú okná a lišty stránky */
+    font: inherit;
+  }
+  .maplegend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .maplegend i {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+  .mapside {
+    max-height: min(76vh, 740px);
+    overflow: auto;
+  }
+  .mapcard {
+    padding: 16px 24px;
+  }
+  .mapcard > :first-child {
+    margin-top: 0;
+  }
+  .mapcard .quick {
+    margin-top: 12px;
+  }
+  .mapside .link {
+    border: 0;
+    background: none;
+    color: var(--ink);
+    padding: 0;
+    text-align: left;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .mapside .link:hover {
+    color: var(--blue);
+    text-decoration: underline;
+  }
+  .mapcheck {
+    align-self: center;
+  }
+  .near {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  @media (max-width: 1100px) {
+    .mapgrid {
+      grid-template-columns: 1fr;
+    }
+    .lmap {
+      height: 55vh;
+      min-height: 320px;
+    }
+    .mapside {
+      max-height: none;
+    }
   }
 
   /* ---------- filtre a formuláre ---------- */

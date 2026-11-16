@@ -664,6 +664,7 @@
     work: ["tasks", "mailtasks", "appointments"],
     contacts: ["devices", "social", "schools", "companies"],
     log: ["history", "calls"],
+    map: ["map"],
   };
   const LABELS = {
     mailing: "Mailing",
@@ -1003,6 +1004,7 @@
       companies: "Kontakty",
       history: "História",
       calls: "História",
+      map: "Mapa zariadení",
     };
     const g = groupOf(view);
     if (g !== "overview") LAST[g] = view;
@@ -1017,7 +1019,9 @@
         ? overview()
         : view === "mailing"
           ? mailingView()
-          : subtabs() + (view === "companies" ? companySummary() : "") + filters();
+          : view === "map"
+            ? '<div id="mapslot"></div>'
+            : subtabs() + (view === "companies" ? companySummary() : "") + filters();
     if (same) {
       Object.keys(keep).forEach((id) => {
         const el = $(id);
@@ -1026,7 +1030,8 @@
         else if (el.tagName !== "SELECT" || [...el.options].some((o) => o.value === keep[id])) el.value = keep[id];
       });
     }
-    if (view !== "overview" && view !== "mailing") results();
+    if (view === "map") mapMount();
+    else if (view !== "overview" && view !== "mailing") results();
     if (same) window.scrollTo(0, sy);
   }
   function detail(row) {
@@ -1084,7 +1089,9 @@
       esc(d.businessNote) +
       '</p></div></div><div class="formfoot"><a class="btn" target="_blank" rel="noopener" href="' +
       esc(data.sourceUrl + "&range=A" + d.row + ":R" + d.row) +
-      '">Otvoriť v tabuľke</a><button class="btn" data-visit="' +
+      '">Otvoriť v tabuľke</a>' +
+      (d.lat != null ? '<button class="btn" data-showmap="' + d.row + '">Ukázať na mape</button>' : "") +
+      '<button class="btn" data-visit="' +
       d.row +
       '">Zapísať návštevu</button><button class="btn primary" data-call="' +
       d.row +
@@ -1184,6 +1191,15 @@
     if (ds.editcall) afterRefresh(() => openEditCall(ds.editcall));
     if (ds.done) afterRefresh(() => openDone(ds.done));
     if (ds.quick) quickCall(ds.quick, ds.row);
+    if ("mapsel" in ds) mapSelect(+ds.mapsel, true);
+    if (ds.showmap) {
+      $("detail").close();
+      mapSel = +ds.showmap;
+      mapPan = true;
+      view = "map";
+      render();
+    }
+    if (b.id === "mapgeocode") mapGeocodeRun();
     if (ds.setstatus) {
       if (refreshing) toast("Ešte obnovujem údaje po uložení, stav zmeň o chvíľu.");
       else saveStatus(ds.setstatus, b);
@@ -1822,6 +1838,444 @@
       $("savedone").textContent = "Uložiť";
     }
   };
+  /* ---------- mapa zariadení ----------
+     Poloha (d.lat, d.lng, d.geo) prichádza s dashboardom z hárka „Mapa - súradnice“ (src/Mapa.js). Mapu kreslí knižnica
+     Leaflet nad podkladom OpenStreetMap – načíta sa až pri otvorení záložky (v appke z vlastných súborov, v dashboarde
+     zo siete). Bez pripojenia ostane výber zariadenia a vzdialenosti, len bez podkladu. Vzdialenosť = vzdušná čiara. */
+  const LEAFLET = window.APPKA
+    ? { js: "leaflet.js", css: "leaflet.css" }
+    : {
+        js: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+        jsHash: "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=",
+        css: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
+        cssHash: "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=",
+      };
+  let leafletLoading = null,
+    mapBox = null, // prvok mapy sa vytvorí raz a pri prekreslení stránky sa len vráti na miesto
+    lmap = null,
+    mapLayer = null,
+    mapSel = 0, // riadok vybraného zariadenia
+    mapFitted = false,
+    mapPan = false,
+    mapBusy = "";
+  function loadLeaflet() {
+    if (window.L) return Promise.resolve();
+    if (!leafletLoading) {
+      // štýly aj skript musia byť načítané skôr, než sa mapa vytvorí (bez štýlov by mala zlé rozmery)
+      const add = (el, hash) =>
+        new Promise((resolve, reject) => {
+          if (hash) {
+            el.integrity = hash;
+            el.crossOrigin = "anonymous";
+          }
+          el.onload = resolve;
+          el.onerror = () => {
+            el.remove();
+            reject(new Error("Knižnicu mapy sa nepodarilo načítať."));
+          };
+          document.head.appendChild(el);
+        });
+      leafletLoading = Promise.all([
+        add(Object.assign(document.createElement("link"), { rel: "stylesheet", href: LEAFLET.css }), LEAFLET.cssHash),
+        add(Object.assign(document.createElement("script"), { src: LEAFLET.js }), LEAFLET.jsHash),
+      ]).catch((e) => {
+        leafletLoading = null; // pri ďalšom otvorení záložky sa skúsi znova
+        throw e;
+      });
+    }
+    return leafletLoading;
+  }
+  function kmBetween(a, b) {
+    const rad = Math.PI / 180,
+      h =
+        Math.sin(((b.lat - a.lat) * rad) / 2) ** 2 +
+        Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(((b.lng - a.lng) * rad) / 2) ** 2;
+    return 12742 * Math.asin(Math.sqrt(h));
+  }
+  const kmText = (x) => (x < 1 ? "do 1 km" : x < 10 ? x.toFixed(1).replace(".", ",") + " km" : Math.round(x) + " km");
+  const MAP_FILTERS = [
+    ["mapstatus", (d) => d.status, "Všetky stavy", "Stav"],
+    ["maptype", (d) => d.type, "Všetky typy", "Typ zariadenia"],
+    ["mapdistrict", (d) => d.district, "Všetky okresy", "Okres"],
+  ];
+  function mapDevices() {
+    const open = $("mapopen").checked;
+    return data.devices.filter(
+      (d) => d.lat != null && (!open || d.open) && MAP_FILTERS.every(([id, get]) => !$(id).value || get(d) === $(id).value),
+    );
+  }
+  // Zariadenia s rovnakou polohou (napr. len stred obce) sa rozložia do krúžku, aby sa dali rozlíšiť a kliknúť.
+  function mapPositions(list) {
+    const groups = new Map(),
+      pos = new Map();
+    list.forEach((d) => {
+      const k = d.lat + "," + d.lng;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(d);
+    });
+    groups.forEach((g) =>
+      g.forEach((d, i) => {
+        if (g.length === 1) return pos.set(d.row, [d.lat, d.lng]);
+        const a = (2 * Math.PI * i) / g.length,
+          r = Math.min(0.004, 0.0006 + 0.00012 * g.length);
+        pos.set(d.row, [d.lat + r * Math.sin(a), d.lng + r * 1.5 * Math.cos(a)]);
+      }),
+    );
+    return pos;
+  }
+  const mapNearest = (list, sel, n) =>
+    list
+      .filter((d) => d !== sel)
+      .map((d) => [kmBetween(sel, d), d])
+      .sort((a, b) => a[0] - b[0])
+      .slice(0, n);
+  function mapMount() {
+    if (!mapBox) {
+      mapBox = document.createElement("div");
+      mapBox.innerHTML =
+        '<div class="filters"><label class="field grow">Zariadenie<select id="mappick"></select></label>' +
+        MAP_FILTERS.map(
+          ([id, , , label]) => '<label class="field">' + label + '<select id="' + id + '"></select></label>',
+        ).join("") +
+        '<label class="checkbox mapcheck"><input id="mapopen" type="checkbox">Len s otvorenou úlohou</label></div>' +
+        '<div class="mapgrid"><div><div id="lmap" class="lmap"></div><div id="maplegend" class="maplegend"></div></div>' +
+        '<aside class="panel mapside" id="mapside"></aside></div>';
+      mapBox.addEventListener("change", (e) => {
+        if (e.target.id === "mappick") mapSelect(+e.target.value, true);
+        else if (e.target.id === "mapopen" || MAP_FILTERS.some(([id]) => id === e.target.id)) mapDraw(true);
+      });
+    }
+    $("mapslot").replaceWith(mapBox);
+    MAP_FILTERS.forEach(([id, get, first]) => {
+      const el = $(id),
+        was = el.value,
+        items = [...new Set(data.devices.map(get))].filter(Boolean).sort((a, b) => a.localeCompare(b, "sk"));
+      el.innerHTML = options(items, first);
+      if (items.includes(was)) el.value = was;
+    });
+    mapDraw();
+    loadLeaflet()
+      .then(() => {
+        if (view !== "map" || !mapBox.isConnected) return;
+        if (!lmap) {
+          lmap = L.map($("lmap"), { preferCanvas: true, zoomSnap: 0.5 }).setView([48.7, 19.5], 8);
+          lmap.attributionControl.setPrefix(false);
+          L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            maxZoom: 18,
+            attribution:
+              '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
+          }).addTo(lmap);
+          mapLayer = L.layerGroup().addTo(lmap);
+          // zmena veľkosti okna alebo rozloženia stránky: mapa si prepočíta rozmery
+          if (typeof ResizeObserver === "function") new ResizeObserver(() => lmap.invalidateSize()).observe($("lmap"));
+        }
+        lmap.invalidateSize();
+        mapDraw();
+      })
+      .catch(() => {
+        if (!lmap && $("lmap"))
+          $("lmap").innerHTML =
+            '<div class="empty">Mapu sa nepodarilo načítať (chýba pripojenie). Výber zariadenia a vzdialenosti fungujú aj bez nej.</div>';
+      });
+  }
+  function mapSelect(row, pan) {
+    mapSel = row || 0;
+    mapPan = !!pan && !!mapSel;
+    mapDraw();
+  }
+  function mapDraw(fit) {
+    if (view !== "map" || !mapBox || !mapBox.isConnected) return;
+    const list = mapDevices();
+    let sel = mapSel ? byRow.get(mapSel) : null;
+    if (!sel || sel.lat == null) {
+      sel = null;
+      mapSel = 0;
+      mapPan = false;
+    }
+    const shown = sel && !list.includes(sel) ? list.concat(sel) : list; // vybrané zariadenie ostáva na mape aj mimo filtra
+    $("mappick").innerHTML =
+      '<option value="">Vybrať zariadenie… (' +
+      shown.length +
+      ")</option>" +
+      shown
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name, "sk"))
+        .map((d) => '<option value="' + d.row + '">' + esc(d.name + (d.city ? " · " + d.city : "")) + "</option>")
+        .join("");
+    $("mappick").value = mapSel || "";
+    mapSide(list, sel);
+    const counts = new Map();
+    shown.forEach((d) => counts.set(d.status, (counts.get(d.status) || 0) + 1));
+    $("maplegend").innerHTML = [...counts]
+      .sort((a, b) => b[1] - a[1])
+      .map(([s, n]) => '<span><i style="background:' + statusColor(s)[2] + '"></i>' + esc(s) + " (" + n + ")</span>")
+      .join("");
+    if (!lmap) return;
+    mapLayer.clearLayers();
+    const pos = mapPositions(shown);
+    const mark = (d) => {
+      const on = d === sel;
+      L.circleMarker(pos.get(d.row), {
+        radius: on ? 11 : 8,
+        color: on ? "#111827" : "#fff",
+        weight: on ? 3 : 1.5,
+        fillColor: statusColor(d.status)[2],
+        fillOpacity: 0.95,
+      })
+        .bindTooltip(esc(d.name + (d.city ? " · " + d.city : "")))
+        .on("click", () => mapSelect(d.row))
+        .addTo(mapLayer);
+    };
+    shown.forEach((d) => d !== sel && mark(d));
+    if (sel) mark(sel); // navrchu
+    if (mapPan && sel) {
+      // výrez: vybrané zariadenie a jeho 5 najbližších
+      const pts = mapNearest(list, sel, 5).map(([, d]) => pos.get(d.row));
+      lmap.fitBounds(L.latLngBounds(pts.concat([pos.get(sel.row)])).pad(0.25), { maxZoom: 13 });
+      mapFitted = true;
+    } else if ((fit || !mapFitted) && shown.length) {
+      lmap.fitBounds(L.latLngBounds([...pos.values()]).pad(0.08), { maxZoom: 13 });
+      mapFitted = true;
+    }
+    mapPan = false;
+  }
+  const telLinks = (phone) =>
+    String(phone || "")
+      .split(";")
+      .filter((p) => p.trim())
+      .map((p) => '<a href="tel:' + esc(p.replace(/[^+\d]/g, "")) + '">' + esc(p.trim()) + "</a>")
+      .join(", ");
+  function mapSide(list, sel) {
+    const all = data.devices,
+      placed = all.filter((d) => d.lat != null).length,
+      unknown = all.filter((d) => !d.geo).length,
+      lost = all.filter((d) => d.geo && d.lat == null);
+    let h = "";
+    if (sel) {
+      const near = mapNearest(list, sel, 15);
+      h +=
+        '<div class="panelhead"><h2>' +
+        nameButton(sel) +
+        '</h2><button class="btn" data-mapsel="0">Zrušiť výber</button></div><div class="mapcard"><p>' +
+        status(sel) +
+        "</p>" +
+        line("place", esc([...new Set([sel.address, sel.city, sel.district].filter(Boolean))].join(", "))) +
+        line("phone", telLinks(sel.phone)) +
+        (sel.person ? "<p>" + esc(sel.person) + "</p>" : "") +
+        (sel.open
+          ? '<p class="notes"><strong>Ďalší krok:</strong> ' +
+            esc(sel.taskText) +
+            (sel.deadline ? " · " + esc(format(sel.deadline)) : "") +
+            "</p>"
+          : "") +
+        (sel.geo === "obec" ? '<p class="muted">Poloha je len približná (stred obce).</p>' : "") +
+        '<div class="quick">' +
+        (data.readOnly ? "" : '<button class="btn primary" data-call="' + sel.row + '">Zapísať telefonát</button>') +
+        '<a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=' +
+        sel.lat +
+        "," +
+        sel.lng +
+        '">Trasa v Google Mapách</a></div></div><div class="panelhead"><h2>Najbližšie zariadenia</h2></div><div class="list">' +
+        (near
+          .map(
+            ([km, d]) =>
+              '<div class="item"><div><button class="name" data-mapsel="' +
+              d.row +
+              '">' +
+              esc(d.name) +
+              "</button><p>" +
+              esc(d.city) +
+              (d.phone ? " · " + telLinks(d.phone) : "") +
+              '</p></div><div class="near"><strong>' +
+              kmText(km) +
+              "</strong>" +
+              status(d, true) +
+              "</div></div>",
+          )
+          .join("") || '<p class="muted">Vo filtri nie je žiadne ďalšie zariadenie s polohou.</p>') +
+        '</div><div class="mapcard"><p class="muted">Vzdialenosti sú vzdušnou čiarou, cesta autom býva dlhšia.</p></div>';
+    } else
+      h +=
+        '<div class="panelhead"><h2>Zariadenia na mape</h2></div><div class="mapcard"><p>Klikni na bod na mape alebo vyber zariadenie zo zoznamu – ukážem kontakt a najbližšie zariadenia so vzdialenosťou.</p></div>';
+    h +=
+      '<div class="mapcard"><p class="muted">Zobrazených ' +
+      list.length +
+      " z " +
+      all.length +
+      " zariadení" +
+      (placed < all.length ? ", polohu má " + placed : "") +
+      ".</p>";
+    if (mapBusy) h += "<p>" + esc(mapBusy) + "</p>";
+    else if (window.APPKA || data.readOnly)
+      h += unknown
+        ? '<p class="muted">' +
+          unknown +
+          " zariadení ešte nemá dohľadanú polohu. " +
+          (data.readOnly && !window.APPKA ? "Dohľadáva ich vlastník dashboardu." : "Dohľadáš ich v dashboarde na počítači (záložka Mapa).") +
+          "</p>"
+        : "";
+    else
+      h +=
+        (unknown ? "<p>" + unknown + " zariadení ešte nemá dohľadanú polohu.</p>" : "") +
+        '<button class="btn' +
+        (unknown ? " primary" : "") +
+        '" id="mapgeocode">' +
+        (unknown ? "Dohľadať polohy" : "Aktualizovať polohy po zmene adries") +
+        '</button><p class="muted">Adresy z Kontaktov sa vyhľadajú cez Google a súradnice sa uložia do hárka „Mapa - súradnice“. Hárok Kontakty sa nemení.</p>';
+    if (lost.length)
+      h +=
+        '<details class="more"><summary>Polohu sa nepodarilo nájsť (' +
+        lost.length +
+        ')</summary><p class="muted">Oprav adresu v Kontaktoch, alebo dopíš šírku a dĺžku do hárka „Mapa - súradnice“.</p>' +
+        lost.map((d) => "<p>" + nameButton(d) + ' <span class="muted">' + esc(d.city) + "</span></p>").join("") +
+        "</details>";
+    $("mapside").innerHTML = h + "</div>";
+  }
+  // Polohy sa dohľadávajú po dávkach (server jednu dávku obmedzuje časom), kým nie sú všetky.
+  async function mapGeocodeRun() {
+    if (mapBusy) return;
+    let done = 0,
+      lost = 0,
+      note = "";
+    try {
+      for (;;) {
+        mapBusy = "Dohľadávam polohy… hotových " + done + ". Nechaj záložku otvorenú.";
+        mapDraw();
+        const r = await api("mapGeocode");
+        done += r.done;
+        lost += r.notFound;
+        if (r.stopped) note = r.stopped;
+        if (r.stopped || !r.left || !r.done) break;
+      }
+    } catch (e) {
+      note = e.message;
+    }
+    mapBusy = "";
+    toast(
+      note ||
+        (done
+          ? "Dohľadaných polôh: " + (done - lost) + (lost ? ", nenájdených: " + lost : "") + "."
+          : "Všetky polohy sú aktuálne."),
+    );
+    if (done) refresh(true, "mapa");
+    else mapDraw();
+  }
+  /* ---------- QR kód (párovací odkaz pre telefón) ----------
+     Vlastný malý generátor, aby stránka nepotrebovala cudziu knižnicu: QR verzia 5 (37×37), úroveň opravy L,
+     bajtový režim, maska 0 – stačí na text do 106 bajtov. Vracia maticu true/false (true = tmavý bod). */
+  function qrMatrix(text) {
+    const bytes = Array.from(new TextEncoder().encode(text)),
+      size = 37,
+      dataLen = 108,
+      eccLen = 26;
+    if (bytes.length > dataLen - 2) throw new Error("Text je na QR kód pridlhý.");
+    // dáta: režim (0100), dĺžka (8 bitov), bajty, ukončenie a výplň
+    const bits = [];
+    const put = (value, n) => {
+      for (let i = n - 1; i >= 0; i--) bits.push((value >>> i) & 1);
+    };
+    put(4, 4);
+    put(bytes.length, 8);
+    bytes.forEach((b) => put(b, 8));
+    put(0, Math.min(4, dataLen * 8 - bits.length));
+    while (bits.length % 8) bits.push(0);
+    const data = [];
+    for (let i = 0; i < bits.length; i += 8) data.push(parseInt(bits.slice(i, i + 8).join(""), 2));
+    for (let pad = 0xec; data.length < dataLen; pad ^= 0xec ^ 0x11) data.push(pad);
+    // Reedov–Solomonov kód nad GF(256)
+    const mul = (x, y) => {
+      let z = 0;
+      for (let i = 7; i >= 0; i--) {
+        z = (z << 1) ^ ((z >>> 7) * 0x11d);
+        z ^= ((y >>> i) & 1) * x;
+      }
+      return z;
+    };
+    const divisor = new Array(eccLen).fill(0);
+    divisor[eccLen - 1] = 1;
+    for (let i = 0, root = 1; i < eccLen; i++, root = mul(root, 2))
+      for (let j = 0; j < eccLen; j++) {
+        divisor[j] = mul(divisor[j], root);
+        if (j + 1 < eccLen) divisor[j] ^= divisor[j + 1];
+      }
+    const ecc = new Array(eccLen).fill(0);
+    data.forEach((b) => {
+      const factor = b ^ ecc.shift();
+      ecc.push(0);
+      divisor.forEach((coef, i) => (ecc[i] ^= mul(coef, factor)));
+    });
+    const all = data.concat(ecc);
+    // pevné vzory
+    const m = Array.from({ length: size }, () => new Array(size).fill(false)),
+      fn = Array.from({ length: size }, () => new Array(size).fill(false));
+    const set = (x, y, dark) => {
+      if (x < 0 || y < 0 || x >= size || y >= size) return;
+      m[y][x] = dark;
+      fn[y][x] = true;
+    };
+    for (let i = 0; i < size; i++) {
+      set(6, i, i % 2 === 0);
+      set(i, 6, i % 2 === 0);
+    }
+    [
+      [3, 3],
+      [size - 4, 3],
+      [3, size - 4],
+    ].forEach(([cx, cy]) => {
+      for (let dy = -4; dy <= 4; dy++)
+        for (let dx = -4; dx <= 4; dx++) {
+          const d = Math.max(Math.abs(dx), Math.abs(dy));
+          set(cx + dx, cy + dy, d !== 2 && d !== 4);
+        }
+    });
+    for (let dy = -2; dy <= 2; dy++)
+      for (let dx = -2; dx <= 2; dx++) set(30 + dx, 30 + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+    // formát: úroveň L (01), maska 0 + kontrolné bity
+    const fdata = 1 << 3;
+    let rem = fdata;
+    for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+    const fbits = ((fdata << 10) | rem) ^ 0x5412,
+      fb = (i) => ((fbits >>> i) & 1) !== 0;
+    for (let i = 0; i <= 5; i++) set(8, i, fb(i));
+    set(8, 7, fb(6));
+    set(8, 8, fb(7));
+    set(7, 8, fb(8));
+    for (let i = 9; i < 15; i++) set(14 - i, 8, fb(i));
+    for (let i = 0; i < 8; i++) set(size - 1 - i, 8, fb(i));
+    for (let i = 8; i < 15; i++) set(8, size - 15 + i, fb(i));
+    set(8, size - 8, true);
+    // dátové body cik-cak od pravého dolného rohu, potom maska 0
+    let k = 0;
+    for (let right = size - 1; right >= 1; right -= 2) {
+      if (right === 6) right = 5;
+      for (let vert = 0; vert < size; vert++)
+        for (let j = 0; j < 2; j++) {
+          const x = right - j,
+            y = ((right + 1) & 2) === 0 ? size - 1 - vert : vert;
+          if (!fn[y][x] && k < all.length * 8) {
+            m[y][x] = ((all[k >>> 3] >>> (7 - (k & 7))) & 1) !== 0;
+            k++;
+          }
+        }
+    }
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (!fn[y][x] && (x + y) % 2 === 0) m[y][x] = !m[y][x];
+    return m;
+  }
+  function qrSvg(text) {
+    const m = qrMatrix(text),
+      n = m.length + 8; // 4 body bieleho okraja z každej strany
+    let d = "";
+    m.forEach((row, y) => row.forEach((dark, x) => dark && (d += "M" + (x + 4) + " " + (y + 4) + "h1v1h-1z")));
+    return (
+      '<svg xmlns="http://www.w3.org/2000/svg" class="qr" role="img" aria-label="QR kód na spárovanie" viewBox="0 0 ' +
+      n +
+      " " +
+      n +
+      '" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#fff"/><path fill="#000" d="' +
+      d +
+      '"/></svg>'
+    );
+  }
   /* ---------- appka a zariadenia ---------- */
   // V dashboarde: zoznam spárovaných zariadení a pripojenie tohto zariadenia. V appke: odhlásenie zariadenia.
   async function loadDevices() {
@@ -1887,12 +2341,19 @@
       if (!r.url) throw new Error("Adresa appky ešte nie je nastavená.");
       // odkaz musí otvoriť používateľ sám (okno otvorené po čakaní na server by prehliadač zablokoval)
       const shown = r.code.slice(0, 4) + "-" + r.code.slice(4);
+      let qr = "";
+      try {
+        qr = qrSvg(r.url + "#pair=" + r.code);
+      } catch (e) {} // bez QR ostáva kód na opísanie
       $("pairlink").innerHTML =
-        '<p class="paircode">' +
+        '<div class="pairbox">' +
+        qr +
+        '<div><p class="paircode">' +
         esc(shown) +
-        '</p><p class="muted"><strong>Iné zariadenie (telefón):</strong> otvor v ňom <strong>' +
+        '</p><p class="muted"><strong>Telefón:</strong> naskenuj QR kód fotoaparátom – appka sa otvorí a spáruje sama. ' +
+        "Alebo v telefóne otvor <strong>" +
         esc(r.url.replace(/^https?:\/\//, "").replace(/\/$/, "")) +
-        "</strong> a opíš tento kód. Netreba sa tam prihlasovať do Google.</p>" +
+        "</strong> a opíš kód. Do Google sa tam prihlasovať netreba.</p></div></div>" +
         '<p class="muted"><strong>Toto zariadenie:</strong> <a target="_blank" rel="noopener" href="' +
         esc(r.url + "#pair=" + r.code) +
         '">otvoriť appku a spárovať</a>.</p><p class="muted">Kód platí ' +
