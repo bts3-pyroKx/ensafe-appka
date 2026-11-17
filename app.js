@@ -69,7 +69,9 @@
       esc(d.status) +
       "</span>" +
       (d.order && !noOrder ? " " + pill("Objednávka", "success") : "") +
-      (window.APPKA && window.APPKA.pendingFor && window.APPKA.pendingFor(d.name) ? " " + pill("Čaká na odoslanie", "warn") : "")
+      (window.APPKA && window.APPKA.pendingFor && window.APPKA.pendingFor(d.name)
+        ? " " + pill("Čaká na odoslanie", "warn")
+        : "")
     );
   }
   function nameButton(d) {
@@ -644,6 +646,7 @@
           (mailDue ? " (" + mailDue + " dnes alebo po termíne)" : "") +
           '. V Ďalších krokoch nie sú, majú samostatný zoznam.</span><button class="btn" data-view="mailtasks">Zobraziť Po mailingu</button></div>'
         : "") +
+      shipBanner() +
       '<div class="grid"><section class="panel"><div class="panelhead"><h2>Ďalšie kroky' +
       (overdue ? ' · <span style="color:var(--accent)">' + overdue + " po termíne</span>" : "") +
       '</h2><button class="btn" data-view="tasks">Všetky úlohy</button></div><div class="list">' +
@@ -658,10 +661,421 @@
       "</section></div>"
     );
   }
+  // ---------- zásielky ----------
+  // data.shipments: jeden riadok na zásielku a zariadenie (hárok „Zásielky“); s.dev = riadok zariadenia v Kontaktoch.
+  const SHIP = {
+    onWay: "Na ceste",
+    stock: "Na sklade",
+    sentOn: "Poslané zákazníkovi",
+    done: "Doručené",
+    off: "Zrušené",
+  };
+  const SHIP_COLORS = {
+    "Na ceste": ["#fff6db", "#7a5b00"],
+    "Na sklade": ["#e3f3ea", "#1b6b45"],
+    "Poslané zákazníkovi": ["#e7f0f8", "#0b65b3"],
+    Doručené: ["#f3f5f8", "#4b5563"],
+    Zrušené: ["#f3f5f8", "#4b5563"],
+  };
+  // odkaz na sledovanie len u dopravcov, kde je adresa istá; inak sa ukáže samotné číslo
+  const SHIP_TRACK = {
+    dhl: "https://www.dhl.com/sk-sk/home/tracking.html?tracking-id=",
+    gls: "https://gls-group.com/track/",
+    ups: "https://www.ups.com/track?tracknum=",
+  };
+  const shipActive = () => (data.shipments || []).filter((s) => s.status !== SHIP.off);
+  const shipsOf = (d) => shipActive().filter((s) => s.dev === d.row);
+  const shipInStock = (d) => shipsOf(d).some((s) => s.status === SHIP.stock);
+  const shipCanEdit = () => !data.readOnly && !window.APPKA; // priradenie, pridanie a pošta sú len v dashboarde
+  function shipPill(st) {
+    const c = SHIP_COLORS[st] || SHIP_COLORS[SHIP.onWay];
+    return '<span class="pill" style="background:' + c[0] + ";color:" + c[1] + '">' + esc(st) + "</span>";
+  }
+  function shipNo(s) {
+    if (!s.no) return "bez čísla";
+    const url = SHIP_TRACK[s.carrier.toLowerCase()];
+    return url
+      ? '<a target="_blank" rel="noopener" href="' + esc(url + encodeURIComponent(s.no)) + '">' + esc(s.no) + "</a>"
+      : esc(s.no);
+  }
+  function shipWhen(s) {
+    return s.status === SHIP.done
+      ? "doručené " + format(s.delivered)
+      : s.status === SHIP.onWay
+        ? s.eta
+          ? "očakávané " + format(s.eta)
+          : s.sent
+            ? "odoslané " + format(s.sent)
+            : ""
+        : s.stock
+          ? "na sklade od " + format(s.stock)
+          : "";
+  }
+  // tlačidlo ďalšieho kroku pri riadku zásielky
+  function shipNext(s) {
+    if (data.readOnly) return "";
+    if (s.status === SHIP.onWay)
+      return '<button class="btn" data-shipset="' + s.row + '" data-status="' + SHIP.stock + '">Na sklade</button>';
+    if (s.status === SHIP.stock || s.status === SHIP.sentOn)
+      return s.name
+        ? '<button class="btn primary" data-shipset="' + s.row + '" data-status="' + SHIP.done + '">Doručené</button>'
+        : "";
+    return "";
+  }
+  // zásielky zariadenia v detaile a na mape
+  function shipInfo(d) {
+    return shipsOf(d)
+      .sort((a, b) => (b.sent || "").localeCompare(a.sent || ""))
+      .map(
+        (s) =>
+          '<p class="shipline">Zásielka: ' +
+          shipPill(s.status) +
+          ' <span class="muted">' +
+          esc([s.carrier, shipWhen(s)].filter(Boolean).join(" · ")) +
+          "</span> " +
+          shipNext(s) +
+          "</p>",
+      )
+      .join("");
+  }
+  function shipGroups() {
+    const m = new Map();
+    shipActive().forEach((s) => {
+      if (!m.has(s.g)) m.set(s.g, []);
+      m.get(s.g).push(s);
+    });
+    return [...m.values()].sort((a, b) => (b[0].sent || "").localeCompare(a[0].sent || "") || b[0].row - a[0].row);
+  }
+  const shipOpen = (g) => g.some((s) => s.status !== SHIP.done);
+  function shipSummary() {
+    const open = shipGroups().filter(shipOpen),
+      way = open.filter((g) => g.some((s) => s.status === SHIP.onWay)),
+      etas = way
+        .map((g) => g[0].eta)
+        .filter(Boolean)
+        .sort();
+    return {
+      way: way.length,
+      eta: etas[0] || "",
+      stock: shipActive().filter((s) => s.status === SHIP.stock && s.name).length,
+      free: open.filter((g) => g.every((s) => !s.name)).length,
+    };
+  }
+  function shipBanner() {
+    const x = shipSummary();
+    if (!x.way && !x.stock && !x.free) return "";
+    const p = [];
+    if (x.way)
+      p.push(
+        "<strong>" +
+          x.way +
+          "</strong> " +
+          (x.way === 1 ? "zásielka je" : x.way < 5 ? "zásielky sú" : "zásielok je") +
+          " na ceste" +
+          (x.eta ? " (očakávaná " + esc(format(x.eta)) + ")" : ""),
+      );
+    if (x.stock)
+      p.push(
+        "tovar pre <strong>" +
+          x.stock +
+          "</strong> " +
+          (x.stock === 1 ? "zariadenie" : x.stock < 5 ? "zariadenia" : "zariadení") +
+          " čaká na rozvoz",
+      );
+    if (x.free)
+      p.push(
+        "<strong>" +
+          x.free +
+          "</strong> " +
+          (x.free === 1 ? "zásielka nemá" : "zásielky nemajú") +
+          " priradené zariadenia",
+      );
+    return (
+      '<div class="banner" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><span>Zásielky: ' +
+      p.join(" · ") +
+      '.</span><button class="btn" data-view="shipments">Zobraziť zásielky</button></div>'
+    );
+  }
+  function shipGroupHtml(g) {
+    const s0 = g[0],
+      edit = shipCanEdit(),
+      way = g.filter((s) => s.status === SHIP.onWay);
+    return (
+      '<section class="panel shipgroup"><div class="panelhead"><h2>' +
+      esc(s0.carrier || "Zásielka") +
+      " · " +
+      shipNo(s0) +
+      '</h2><div class="quick">' +
+      (way.length && !data.readOnly
+        ? '<button class="btn primary" data-shipset="' +
+          way[0].row +
+          '" data-status="' +
+          SHIP.stock +
+          '" data-all="1">Dorazilo na sklad</button>'
+        : "") +
+      (edit ? '<button class="btn" data-shipassign="' + s0.row + '">Priradiť zariadenia</button>' : "") +
+      '</div></div><p class="muted shipmeta">' +
+      esc(
+        [
+          s0.sent ? "Odoslané " + format(s0.sent) : "",
+          s0.eta ? "očakávané doručenie " + format(s0.eta) : "",
+          s0.src.startsWith("mail:") ? "načítané z pošty" : "zadané ručne",
+          s0.note,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      ) +
+      '</p><div class="tablewrap"><table><tbody>' +
+      g
+        .map((s) => {
+          const d = s.dev ? byRow.get(s.dev) : null;
+          return (
+            "<tr><td>" +
+            (d
+              ? nameButton(d)
+              : s.name
+                ? esc(s.name)
+                : '<span class="muted">Zatiaľ bez zariadenia' +
+                  (edit ? " – klikni na Priradiť zariadenia" : "") +
+                  "</span>") +
+            (s.city ? "<small>" + esc(s.city) + "</small>" : "") +
+            "</td><td>" +
+            shipPill(s.status) +
+            (shipWhen(s) ? "<small>" + esc(shipWhen(s)) + "</small>" : "") +
+            (window.APPKA && window.APPKA.pendingFor && s.name && window.APPKA.pendingFor(s.name)
+              ? " " + pill("Čaká na odoslanie", "warn")
+              : "") +
+            '</td><td class="shipact">' +
+            (g.length > 1 || s.status !== SHIP.onWay ? shipNext(s) : "") +
+            (data.readOnly
+              ? ""
+              : '<select data-shipsel="' +
+                s.row +
+                '" aria-label="Zmeniť stav zásielky">' +
+                Object.values(SHIP)
+                  .map((st) => "<option" + (st === s.status ? " selected" : "") + ">" + esc(st) + "</option>")
+                  .join("") +
+                "</select>") +
+            "</td></tr>"
+          );
+        })
+        .join("") +
+      "</tbody></table></div></section>"
+    );
+  }
+  function shipView() {
+    const groups = shipGroups(),
+      open = groups.filter(shipOpen),
+      done = groups.filter((g) => !shipOpen(g));
+    return (
+      (shipCanEdit()
+        ? '<div class="quick shipbar"><button class="btn" id="shipscan">Skontrolovať poštu</button><button class="btn" data-shipadd="1">Pridať zásielku ručne</button></div>'
+        : "") +
+      (data.shipError ? '<div class="error">' + esc(data.shipError) + "</div>" : "") +
+      '<p class="muted" style="margin:0 0 12px;font-size:14px">Zásielky od dodávateľa sa načítajú z pošty (mail s číslom zásielky) každú hodinu. Priraď im zariadenia; po príchode klikni „Dorazilo na sklad“ a po odovzdaní zákazníkovi „Doručené“. Zariadenia s tovarom na sklade sú zvýraznené na mape.</p>' +
+      (open.map(shipGroupHtml).join("") || empty("Žiadna zásielka nie je na ceste ani na sklade.")) +
+      (done.length
+        ? '<details class="panel" style="margin-top:16px;padding:16px"><summary><strong>Doručené · ' +
+          done.length +
+          "</strong></summary>" +
+          done.map(shipGroupHtml).join("") +
+          "</details>"
+        : "")
+    );
+  }
+  async function shipSave(name, arg, okMsg, btn) {
+    if (statusSaving || window.PREVIEW_DATA) return false;
+    if (refreshing) {
+      toast("Ešte obnovujem údaje po uložení, skús to o chvíľu.");
+      return false;
+    }
+    statusSaving = true;
+    if (btn) btn.disabled = true;
+    try {
+      const r = await timedSave(name, arg);
+      if (!(r && r.queued)) toast(okMsg);
+      await applySaved(r);
+      return true;
+    } catch (e) {
+      toast("Zápis zásielky zlyhal: " + e.message);
+      if (btn) btn.disabled = false;
+      return false;
+    } finally {
+      statusSaving = false;
+    }
+  }
+  async function shipSet(row, st, all, el) {
+    const s = (data.shipments || []).find((x) => x.row === +row);
+    if (!s || st === s.status) return;
+    if (
+      st === SHIP.off &&
+      !confirm("Zrušiť tento riadok zásielky? V hárku ostane so stavom Zrušené a dashboard ho prestane ukazovať.")
+    ) {
+      if (el && el.tagName === "SELECT") el.value = s.status;
+      return;
+    }
+    const ok = await shipSave(
+      "shipSetStatus",
+      { row: s.row, name: s.name, version: s.version, status: st, all: !!all },
+      "Zásielka" + (s.name ? " – " + s.name : "") + ": " + st + ".",
+      el,
+    );
+    if (!ok && el && el.tagName === "SELECT") el.value = s.status;
+    if (ok && $("detail").open && detailRow) detail(detailRow);
+  }
+  async function shipScanRun(btn) {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = "Kontrolujem poštu…";
+    try {
+      const r = await api("shipScan");
+      toast(
+        r.added.length
+          ? "Nové zásielky: " +
+              r.added.map((a) => [a.carrier, a.no].filter(Boolean).join(" ")).join(", ") +
+              ". Priraď im zariadenia."
+          : r.unread
+            ? "Našiel som " + r.unread + " mail(y) o zásielke, ale číslo zásielky sa z nich nepodarilo prečítať."
+            : "V pošte nie je žiadna nová zásielka.",
+      );
+      if (r.added.length) refresh(true, "zásielky");
+    } catch (e) {
+      toast("Poštu sa nepodarilo skontrolovať: " + e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Skontrolovať poštu";
+    }
+  }
+  // Okno na priradenie zariadení k zásielke (mode "assign") a na ručné pridanie zásielky (mode "add").
+  let shipDlg = null; // { mode, row, picked: Set riadkov zariadení }
+  function shipDialog(mode, row) {
+    let dlg = $("shipdlg");
+    if (!dlg) {
+      dlg = document.createElement("dialog");
+      dlg.id = "shipdlg";
+      dlg.innerHTML =
+        '<div class="panelhead"><h2 id="shipdlgtitle"></h2><button class="btn" type="button" data-close="shipdlg">Zavrieť</button></div>' +
+        '<form class="dialogbody" id="shipform"><div class="formgrid" id="shipfields">' +
+        '<label class="field">Dopravca<input name="carrier" maxlength="40" placeholder="napr. DHL"></label>' +
+        '<label class="field">Číslo zásielky<input name="no" maxlength="60" placeholder="nepovinné"></label>' +
+        '<label class="field">Odoslané<input name="sent" type="date"></label>' +
+        '<label class="field">Očakávané doručenie<input name="eta" type="date"></label>' +
+        '<label class="field">Stav<select name="status"><option>Na ceste</option><option>Na sklade</option><option>Poslané zákazníkovi</option></select></label>' +
+        '<label class="field">Poznámka<input name="note" maxlength="500"></label></div>' +
+        '<label class="field">Zariadenia<input id="shipsearch" type="search" placeholder="Hľadať zariadenie podľa názvu alebo obce"></label>' +
+        '<div id="shiplist" class="shiplist"></div><div class="error" id="shiperror" hidden></div>' +
+        '<div class="formfoot"><button class="btn primary" id="shipsave">Uložiť</button></div></form>';
+      document.body.append(dlg);
+      $("shipsearch").addEventListener("input", shipListPaint);
+      $("shiplist").addEventListener("change", (e) => {
+        const r = +e.target.dataset.pick;
+        if (!r || !shipDlg) return;
+        if (e.target.checked) shipDlg.picked.add(r);
+        else shipDlg.picked.delete(r);
+        shipListPaint();
+      });
+      $("shipform").addEventListener("submit", shipDialogSave);
+    }
+    const s = mode === "assign" ? (data.shipments || []).find((x) => x.row === +row) : null;
+    if (mode === "assign" && !s) return;
+    shipDlg = { mode, row: s ? s.row : 0, picked: new Set() };
+    $("shipdlgtitle").textContent = s ? "Zariadenia v zásielke " + (s.no || "") : "Nová zásielka";
+    $("shipfields").hidden = !!s;
+    const el = $("shipform").elements;
+    el.carrier.value = el.no.value = el.eta.value = el.note.value = "";
+    el.sent.value = data.today;
+    el.sent.max = data.today;
+    el.status.value = SHIP.onWay;
+    $("shipsearch").value = "";
+    $("shiperror").hidden = true;
+    $("shipsave").textContent = s ? "Priradiť zariadenia" : "Pridať zásielku";
+    shipListPaint();
+    dlg.showModal();
+  }
+  function shipListPaint() {
+    if (!shipDlg) return;
+    const q = normalize($("shipsearch").value || "").trim(),
+      inGroup = new Set(),
+      cur = shipDlg.row ? (data.shipments || []).find((x) => x.row === shipDlg.row) : null;
+    if (cur) shipActive().forEach((s) => s.g === cur.g && s.dev && inGroup.add(s.dev));
+    const picked = [...shipDlg.picked].map((r) => byRow.get(r)).filter(Boolean),
+      // bez hľadania: zariadenia s potvrdenou objednávkou, ktoré ešte nemajú nedoručenú zásielku
+      found = (
+        q
+          ? data.devices.filter((d) => hay(d).includes(q))
+          : data.devices.filter((d) => d.order && !shipsOf(d).some((s) => s.status !== SHIP.done))
+      )
+        .filter((d) => !shipDlg.picked.has(d.row) && !inGroup.has(d.row))
+        .slice(0, 30);
+    const item = (d, on) =>
+      '<label class="checkbox"><input type="checkbox" data-pick="' +
+      d.row +
+      '"' +
+      (on ? " checked" : "") +
+      "><span>" +
+      esc(d.name) +
+      ' <span class="muted">' +
+      esc([d.city, d.order ? "objednávka potvrdená" : ""].filter(Boolean).join(" · ")) +
+      "</span></span></label>";
+    $("shiplist").innerHTML =
+      picked.map((d) => item(d, true)).join("") +
+      (found.length
+        ? '<p class="muted">' +
+          (q ? "Nájdené:" : "Zariadenia s potvrdenou objednávkou bez zásielky:") +
+          "</p>" +
+          found.map((d) => item(d, false)).join("")
+        : '<p class="muted">' +
+          (q ? "Nič sa nenašlo." : "Žiadne ďalšie zariadenie s potvrdenou objednávkou – iné nájdeš hľadaním.") +
+          "</p>");
+  }
+  async function shipDialogSave(e) {
+    e.preventDefault();
+    if (!shipDlg || statusSaving) return;
+    const devices = [...shipDlg.picked]
+        .map((r) => byRow.get(r))
+        .filter(Boolean)
+        .map((d) => ({ row: d.row, name: d.name })),
+      el = $("shipform").elements,
+      s = shipDlg.row ? (data.shipments || []).find((x) => x.row === shipDlg.row) : null,
+      fail = (msg) => {
+        $("shiperror").textContent = msg;
+        $("shiperror").hidden = false;
+      };
+    $("shiperror").hidden = true;
+    if (shipDlg.mode === "assign" && (!s || !devices.length)) return fail("Vyber aspoň jedno zariadenie.");
+    if (shipDlg.mode === "add" && !devices.length && !el.no.value.trim())
+      return fail("Zadaj číslo zásielky alebo vyber aspoň jedno zariadenie.");
+    $("shipsave").disabled = true;
+    statusSaving = true;
+    try {
+      const r = await timedSave(
+        s ? "shipAssign" : "shipAdd",
+        s
+          ? { row: s.row, name: s.name, version: s.version, devices }
+          : {
+              no: el.no.value,
+              carrier: el.carrier.value,
+              sent: el.sent.value,
+              eta: el.eta.value,
+              status: el.status.value,
+              note: el.note.value,
+              devices,
+            },
+      );
+      $("shipdlg").close();
+      toast(s ? "Zariadenia boli priradené k zásielke." : "Zásielka bola pridaná.");
+      await applySaved(r);
+    } catch (err) {
+      fail(err.message);
+    } finally {
+      statusSaving = false;
+      $("shipsave").disabled = false;
+    }
+  }
   const GROUPS = {
     mail: ["mailing"],
     overview: ["overview"],
-    work: ["tasks", "mailtasks", "appointments"],
+    work: ["tasks", "mailtasks", "appointments", "shipments"],
     contacts: ["devices", "social", "schools", "companies"],
     log: ["history", "calls"],
     map: ["map"],
@@ -671,6 +1085,7 @@
     tasks: "Moje úlohy",
     mailtasks: "Po mailingu",
     appointments: "Termíny",
+    shipments: "Zásielky",
     devices: "Všetky",
     social: "Sociálne zariadenia",
     schools: "Školy",
@@ -998,6 +1413,7 @@
       tasks: "Úlohy a termíny",
       mailtasks: "Úlohy a termíny",
       appointments: "Úlohy a termíny",
+      shipments: "Úlohy a termíny",
       devices: "Kontakty",
       social: "Kontakty",
       schools: "Kontakty",
@@ -1021,7 +1437,9 @@
           ? mailingView()
           : view === "map"
             ? '<div id="mapslot"></div>'
-            : subtabs() + (view === "companies" ? companySummary() : "") + filters();
+            : view === "shipments"
+              ? subtabs() + shipView()
+              : subtabs() + (view === "companies" ? companySummary() : "") + filters();
     if (same) {
       Object.keys(keep).forEach((id) => {
         const el = $(id);
@@ -1031,7 +1449,7 @@
       });
     }
     if (view === "map") mapMount();
-    else if (view !== "overview" && view !== "mailing") results();
+    else if (view !== "overview" && view !== "mailing" && view !== "shipments") results();
     if (same) window.scrollTo(0, sy);
   }
   function detail(row) {
@@ -1077,7 +1495,9 @@
       esc(d.appointment ? format(d.appointment, true) : d.appointmentRaw || "Neuvedené") +
       "</p><p>" +
       pill(d.order ? "Objednávka potvrdená" : "Objednávka zatiaľ nepotvrdená", d.order ? "success" : "") +
-      '</p></div><div class="detailbox"><h3>Ďalší krok</h3><p class="notes">' +
+      "</p>" +
+      shipInfo(d) +
+      '</div><div class="detailbox"><h3>Ďalší krok</h3><p class="notes">' +
       esc(d.action || "Zatiaľ neurčený") +
       "</p><p>" +
       esc(format(d.deadline)) +
@@ -1200,6 +1620,10 @@
       render();
     }
     if (b.id === "mapgeocode") mapGeocodeRun();
+    if (ds.shipset) shipSet(ds.shipset, ds.status, ds.all === "1", b);
+    if (ds.shipassign) afterRefresh(() => shipDialog("assign", ds.shipassign));
+    if (ds.shipadd) afterRefresh(() => shipDialog("add"));
+    if (b.id === "shipscan") shipScanRun(b);
     if (ds.setstatus) {
       if (refreshing) toast("Ešte obnovujem údaje po uložení, stav zmeň o chvíľu.");
       else saveStatus(ds.setstatus, b);
@@ -1216,6 +1640,10 @@
         if ($("results")) results();
       }, 150);
     else results();
+  });
+  document.addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.dataset && t.dataset.shipsel) shipSet(t.dataset.shipsel, t.value, false, t);
   });
   $("refresh").onclick = () => refresh(true);
   $("newcall").onclick = () => afterRefresh(() => openCall());
@@ -1899,9 +2327,14 @@
     ["mapdistrict", (d) => d.district, "Všetky okresy", "Okres"],
   ];
   function mapDevices() {
-    const open = $("mapopen").checked;
+    const open = $("mapopen").checked,
+      stock = $("mapstock").checked;
     return data.devices.filter(
-      (d) => d.lat != null && (!open || d.open) && MAP_FILTERS.every(([id, get]) => !$(id).value || get(d) === $(id).value),
+      (d) =>
+        d.lat != null &&
+        (!open || d.open) &&
+        (!stock || shipInStock(d)) &&
+        MAP_FILTERS.every(([id, get]) => !$(id).value || get(d) === $(id).value),
     );
   }
   // Zariadenia s rovnakou polohou (napr. len stred obce) sa rozložia do krúžku, aby sa dali rozlíšiť a kliknúť.
@@ -1937,12 +2370,18 @@
         MAP_FILTERS.map(
           ([id, , , label]) => '<label class="field">' + label + '<select id="' + id + '"></select></label>',
         ).join("") +
-        '<label class="checkbox mapcheck"><input id="mapopen" type="checkbox">Len s otvorenou úlohou</label></div>' +
+        '<label class="checkbox mapcheck"><input id="mapopen" type="checkbox">Len s otvorenou úlohou</label>' +
+        '<label class="checkbox mapcheck"><input id="mapstock" type="checkbox">Len tovar na sklade (rozvoz)</label></div>' +
         '<div class="mapgrid"><div><div id="lmap" class="lmap"></div><div id="maplegend" class="maplegend"></div></div>' +
         '<aside class="panel mapside" id="mapside"></aside></div>';
       mapBox.addEventListener("change", (e) => {
         if (e.target.id === "mappick") mapSelect(+e.target.value, true);
-        else if (e.target.id === "mapopen" || MAP_FILTERS.some(([id]) => id === e.target.id)) mapDraw(true);
+        else if (
+          e.target.id === "mapopen" ||
+          e.target.id === "mapstock" ||
+          MAP_FILTERS.some(([id]) => id === e.target.id)
+        )
+          mapDraw(true);
       });
     }
     $("mapslot").replaceWith(mapBox);
@@ -2010,15 +2449,22 @@
       .sort((a, b) => b[1] - a[1])
       .map(([s, n]) => '<span><i style="background:' + statusColor(s)[2] + '"></i>' + esc(s) + " (" + n + ")</span>")
       .join("");
+    const stockN = shown.filter(shipInStock).length;
+    if (stockN)
+      $("maplegend").innerHTML +=
+        '<span><i style="background:#fff;box-shadow:inset 0 0 0 3px #119039"></i>Tovar na sklade – rozvoz (' +
+        stockN +
+        ")</span>";
     if (!lmap) return;
     mapLayer.clearLayers();
     const pos = mapPositions(shown);
     const mark = (d) => {
-      const on = d === sel;
+      const on = d === sel,
+        stock = shipInStock(d); // tovar na sklade čaká na rozvoz – zelený krúžok EnSafe
       L.circleMarker(pos.get(d.row), {
-        radius: on ? 11 : 8,
-        color: on ? "#111827" : "#fff",
-        weight: on ? 3 : 1.5,
+        radius: on ? 11 : stock ? 10 : 8,
+        color: on ? "#111827" : stock ? "#119039" : "#fff",
+        weight: on ? 3 : stock ? 4 : 1.5,
         fillColor: statusColor(d.status)[2],
         fillOpacity: 0.95,
       })
@@ -2059,6 +2505,7 @@
         '</h2><button class="btn" data-mapsel="0">Zrušiť výber</button></div><div class="mapcard"><p>' +
         status(sel) +
         "</p>" +
+        shipInfo(sel) +
         line("place", esc([...new Set([sel.address, sel.city, sel.district].filter(Boolean))].join(", "))) +
         line("phone", telLinks(sel.phone)) +
         (sel.person ? "<p>" + esc(sel.person) + "</p>" : "") +
@@ -2111,7 +2558,9 @@
         ? '<p class="muted">' +
           unknown +
           " zariadení ešte nemá dohľadanú polohu. " +
-          (data.readOnly && !window.APPKA ? "Dohľadáva ich vlastník dashboardu." : "Dohľadáš ich v dashboarde na počítači (záložka Mapa).") +
+          (data.readOnly && !window.APPKA
+            ? "Dohľadáva ich vlastník dashboardu."
+            : "Dohľadáš ich v dashboarde na počítači (záložka Mapa).") +
           "</p>"
         : "";
     else
@@ -2258,7 +2707,8 @@
           }
         }
     }
-    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (!fn[y][x] && (x + y) % 2 === 0) m[y][x] = !m[y][x];
+    for (let y = 0; y < size; y++)
+      for (let x = 0; x < size; x++) if (!fn[y][x] && (x + y) % 2 === 0) m[y][x] = !m[y][x];
     return m;
   }
   function qrSvg(text) {
@@ -2314,7 +2764,11 @@
       return;
     }
     const ua = navigator.userAgent;
-    $("pairform").elements.name.value = /Android/.test(ua) ? "Telefón (Android)" : /Windows/.test(ua) ? "Počítač (Windows)" : "Zariadenie";
+    $("pairform").elements.name.value = /Android/.test(ua)
+      ? "Telefón (Android)"
+      : /Windows/.test(ua)
+        ? "Počítač (Windows)"
+        : "Zariadenie";
     $("pairerror").hidden = true;
     $("pairlink").innerHTML = "";
     $("devicesdlg").showModal();

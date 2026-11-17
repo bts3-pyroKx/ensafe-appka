@@ -18,11 +18,18 @@
   let items = [], // { id, name, arg, at, state: "wait" | "conflict" | "error", msg, tried }
     flushing = false,
     loaded = false;
-  const keyOf = (it) => (it.name === "updateCall" ? "d:" : "c:") + it.arg.row;
+  // čoho sa zápis týka: "d" = riadok denníka hovorov, "s" = riadok zásielky, "c" = zariadenie v Kontaktoch
+  const kind = (it) => (it.name === "updateCall" ? "d" : it.name === "shipSetStatus" ? "s" : "c");
   // aktuálna verzia riadku na serveri podľa naposledy načítaného dashboardu (undefined = riadok tam nie je / má iný názov)
   function versionNow(it) {
     if (!data) return undefined;
-    const rec = it.name === "updateCall" ? (data.calls || []).find((c) => c.row === it.arg.row) : byRow.get(it.arg.row);
+    const k = kind(it),
+      rec =
+        k === "d"
+          ? (data.calls || []).find((c) => c.row === it.arg.row)
+          : k === "s"
+            ? (data.shipments || []).find((s) => s.row === it.arg.row)
+            : byRow.get(it.arg.row);
     return rec && rec.name === it.arg.name ? rec.version : undefined;
   }
   const save = () => A.queueStore.set(items);
@@ -35,6 +42,7 @@
       return "Telefonát – " + n + ": " + (a.result || "") + (a.status ? " → " + a.status : "");
     if (it.name === "completeTask") return "Úloha splnená – " + n + ": " + (a.done || "");
     if (it.name === "setStatus") return "Zmena stavu – " + n + " → " + a.status;
+    if (it.name === "shipSetStatus") return "Zásielka – " + (n || "bez zariadenia") + " → " + a.status;
     if (it.name === "saveActivity") return (a.type || "Návšteva") + " – " + n;
     return "Úprava telefonátu – " + n;
   }
@@ -71,8 +79,8 @@
         items = items.filter((i) => i !== it);
       } else if (b.dataset.act === "force") {
         // odoslať aj tak: zápis sa prenesie na aktuálny stav riadku (aj keby sa riadok v tabuľke posunul)
-        const target = it.name === "updateCall" ? null : deviceByName(it.arg.name);
-        if (it.name === "updateCall" ? versionNow(it) === undefined : !target) {
+        const target = kind(it) === "c" ? deviceByName(it.arg.name) : null;
+        if (kind(it) === "c" ? !target : versionNow(it) === undefined) {
           toast("Záznam „" + it.arg.name + "“ už v tabuľke nie je – zápis sa nedá odoslať, len zahodiť.");
           return;
         }
@@ -108,7 +116,7 @@
     $("queuelist").innerHTML = items.length
       ? items
           .map((it) => {
-            const now = it.name === "updateCall" ? null : deviceByName(it.arg.name);
+            const now = kind(it) === "c" ? deviceByName(it.arg.name) : null;
             return (
               '<div class="queueitem"><div><strong>' +
               esc(label(it)) +
@@ -166,7 +174,8 @@
         if (it.arg.version !== versionNow(it) && !it.tried) {
           it.state = "conflict";
           it.msg =
-            "Údaje zariadenia sa medzičasom zmenili inde (v tabuľke alebo na inom zariadení). Zápis sa neodoslal.";
+            (kind(it) === "s" ? "Zásielka sa" : "Údaje zariadenia sa") +
+            " medzičasom zmenili inde (v tabuľke alebo na inom zariadení). Zápis sa neodoslal.";
           continue;
         }
         const others = items.filter((o) => o !== it && o.state === "wait").map((o) => [o, versionNow(o)]);

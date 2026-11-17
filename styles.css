@@ -585,6 +585,71 @@
   .quickcell .quick {
     flex-wrap: nowrap;
   }
+  /* zásielky */
+  .shipbar {
+    margin-bottom: 12px;
+  }
+  .shipbar .btn {
+    padding: 8px 14px;
+    font-size: 14px;
+  }
+  .shipgroup {
+    margin-bottom: 16px;
+  }
+  .shipgroup .panelhead {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .shipgroup .panelhead h2 {
+    overflow-wrap: anywhere;
+  }
+  .shipmeta {
+    margin: 0;
+    padding: 0 24px 12px;
+    font-size: 14px;
+  }
+  .shipact {
+    text-align: right;
+    white-space: nowrap;
+  }
+  .shipact .btn {
+    padding: 5px 10px;
+    font-size: 12px;
+    margin-right: 6px;
+  }
+  .shipact select {
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 12px;
+    max-width: 150px;
+  }
+  .shipline .btn {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+  .shiplist {
+    max-height: 260px;
+    overflow: auto;
+    margin-top: 10px;
+    display: grid;
+    gap: 8px;
+  }
+  .shiplist p {
+    margin: 6px 0 0;
+    font-size: 13px;
+  }
+  @media (max-width: 700px) {
+    .shipmeta {
+      padding: 0 16px 12px;
+    }
+    .shipact {
+      white-space: normal;
+    }
+    .shipact .btn {
+      margin: 0 0 6px;
+    }
+  }
   .quickcell .btn {
     white-space: nowrap;
   }
