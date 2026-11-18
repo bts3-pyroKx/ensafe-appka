@@ -593,6 +593,10 @@
     padding: 8px 14px;
     font-size: 14px;
   }
+  small.late {
+    color: #b42318;
+    font-weight: 600;
+  }
   .shipgroup {
     margin-bottom: 16px;
   }
@@ -623,6 +627,76 @@
     border-radius: 8px;
     font-size: 12px;
     max-width: 150px;
+  }
+  .buyer {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+  .buyer h4 {
+    margin: 0 0 6px;
+    font-size: 14px;
+  }
+  .quoteline {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 6px 0;
+  }
+  .quoterow {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 4px 0;
+  }
+  .quoterow > span {
+    flex: 1;
+  }
+  .quoterow .muted {
+    white-space: nowrap;
+  }
+  .quoterow input[type="number"] {
+    width: 64px;
+    padding: 4px 6px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .quotetotal {
+    font-weight: 600;
+    margin: 8px 0;
+  }
+  .quoteline .btn {
+    padding: 2px 10px;
+  }
+  .icolist {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .icolist li {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .icolist li .btn {
+    flex: none;
+  }
+  .icoform {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .icoform input {
+    flex: 1 1 160px;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
   }
   .shipline .btn {
     padding: 4px 10px;

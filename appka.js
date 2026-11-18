@@ -6,7 +6,15 @@
   "use strict";
   const CFG = window.APPKA_CONFIG || {};
   const KEY = "ensafe.kluc";
-  const WRITES = ["saveCall", "saveActivity", "updateCall", "completeTask", "setStatus", "shipSetStatus"];
+  const WRITES = [
+    "saveCall",
+    "saveActivity",
+    "updateCall",
+    "completeTask",
+    "setStatus",
+    "saveContact",
+    "shipSetStatus",
+  ];
   const store = {
     get(k) {
       try {

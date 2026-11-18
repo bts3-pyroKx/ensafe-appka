@@ -42,6 +42,7 @@
       return "Telefonát – " + n + ": " + (a.result || "") + (a.status ? " → " + a.status : "");
     if (it.name === "completeTask") return "Úloha splnená – " + n + ": " + (a.done || "");
     if (it.name === "setStatus") return "Zmena stavu – " + n + " → " + a.status;
+    if (it.name === "saveContact") return "Úprava kontaktu – " + n;
     if (it.name === "shipSetStatus") return "Zásielka – " + (n || "bez zariadenia") + " → " + a.status;
     if (it.name === "saveActivity") return (a.type || "Návšteva") + " – " + n;
     return "Úprava telefonátu – " + n;
@@ -183,7 +184,8 @@
           it.tried = true; // od tejto chvíle mohol zápis na serveri prebehnúť, aj keby odpoveď neprišla
           await save();
           const r = await A.send(it.name, [it.arg], it.id);
-          if (["saveCall", "completeTask", "setStatus"].includes(it.name) && !(r && r.duplicate)) calendar = true;
+          if (["saveCall", "completeTask", "setStatus", "saveContact"].includes(it.name) && !(r && r.duplicate))
+            calendar = true;
         } catch (e) {
           if (STOP.includes(e.code)) {
             stopped = e.code;

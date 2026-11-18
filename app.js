@@ -32,6 +32,7 @@
     place:
       '<svg xmlns="http://www.w3.org/2000/svg" class="ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter"><path d="M12 21 C12 21 5 14 5 9.5 C5 5.6 8.1 2.5 12 2.5 C15.9 2.5 19 5.6 19 9.5 C19 14 12 21 12 21 Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
     date: '<svg xmlns="http://www.w3.org/2000/svg" class="ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter"><path d="M4 5 H20 V20 H4 Z M4 10 H20 M8 3 V7 M16 3 V7 M8 14 H10 M14 14 H16"/></svg>',
+    link: '<svg xmlns="http://www.w3.org/2000/svg" class="ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter"><path d="M10 14 L14 10 M8.5 11.5 L6 14 A3.5 3.5 0 0 0 10 18 L12.5 15.5 M15.5 12.5 L18 10 A3.5 3.5 0 0 0 14 6 L11.5 8.5"/></svg>',
   };
   const line = (icon, html) => (html ? '<p class="contactline">' + ICONS[icon] + "<span>" + html + "</span></p>" : "");
   function pill(label, kind = "") {
@@ -223,7 +224,7 @@
     if (CAL_WRITES.includes(name) && !(r && r.duplicate)) syncCalendarLater();
     return r;
   }
-  const CAL_WRITES = ["saveCall", "completeTask", "setStatus"];
+  const CAL_WRITES = ["saveCall", "completeTask", "setStatus", "saveContact"]; // saveContact: miesto a kontakt v udalosti
   function syncCalendarLater() {
     api("syncCalendar").catch((e) =>
       toast("Kalendár ukážok sa nepodarilo aktualizovať (dorobí sa do 15 minút): " + ((e && e.message) || e)),
@@ -677,12 +678,21 @@
     Doručené: ["#f3f5f8", "#4b5563"],
     Zrušené: ["#f3f5f8", "#4b5563"],
   };
-  // odkaz na sledovanie len u dopravcov, kde je adresa istá; inak sa ukáže samotné číslo
+  // dopravcovia na výber (rovnaký zoznam ako SHIP.carriers na serveri, podľa ktorého sa rozpoznávajú v maile)
+  const SHIP_CARRIERS = ["DHL", "DPD", "GLS", "UPS", "FedEx", "TNT", "InPost", "Packeta", "SPS", "Geis", "Raben", "Schenker"];
+  // priame sledovanie u dopravcu; ostatní a neznámy dopravca → univerzálne sledovanie 17TRACK (dopravcu spozná z čísla)
   const SHIP_TRACK = {
     dhl: "https://www.dhl.com/sk-sk/home/tracking.html?tracking-id=",
     gls: "https://gls-group.com/track/",
     ups: "https://www.ups.com/track?tracknum=",
+    dpd: "https://tracking.dpd.de/status/sk_SK/parcel/",
+    fedex: "https://www.fedex.com/fedextrack/?trknbr=",
+    packeta: "https://tracking.packeta.com/sk/?id=",
+    inpost: "https://inpost.pl/sledzenie-przesylek?number=",
   };
+  const SHIP_TRACK_ANY = "https://t.17track.net/sk#nums=";
+  // zásielka po očakávanom doručení stále na ceste
+  const shipLate = (s) => s.status === SHIP.onWay && !!s.eta && s.eta < data.today;
   const shipActive = () => (data.shipments || []).filter((s) => s.status !== SHIP.off);
   const shipsOf = (d) => shipActive().filter((s) => s.dev === d.row);
   const shipInStock = (d) => shipsOf(d).some((s) => s.status === SHIP.stock);
@@ -693,17 +703,15 @@
   }
   function shipNo(s) {
     if (!s.no) return "bez čísla";
-    const url = SHIP_TRACK[s.carrier.toLowerCase()];
-    return url
-      ? '<a target="_blank" rel="noopener" href="' + esc(url + encodeURIComponent(s.no)) + '">' + esc(s.no) + "</a>"
-      : esc(s.no);
+    const url = SHIP_TRACK[s.carrier.toLowerCase()] || SHIP_TRACK_ANY;
+    return '<a target="_blank" rel="noopener" href="' + esc(url + encodeURIComponent(s.no)) + '">' + esc(s.no) + "</a>";
   }
   function shipWhen(s) {
     return s.status === SHIP.done
       ? "doručené " + format(s.delivered)
       : s.status === SHIP.onWay
         ? s.eta
-          ? "očakávané " + format(s.eta)
+          ? "očakávané " + format(s.eta) + (shipLate(s) ? " – mešká" : "")
           : s.sent
             ? "odoslané " + format(s.sent)
             : ""
@@ -750,12 +758,14 @@
   function shipSummary() {
     const open = shipGroups().filter(shipOpen),
       way = open.filter((g) => g.some((s) => s.status === SHIP.onWay)),
+      late = way.filter((g) => g.some(shipLate)).length,
       etas = way
         .map((g) => g[0].eta)
         .filter(Boolean)
         .sort();
     return {
       way: way.length,
+      late,
       eta: etas[0] || "",
       stock: shipActive().filter((s) => s.status === SHIP.stock && s.name).length,
       free: open.filter((g) => g.every((s) => !s.name)).length,
@@ -772,7 +782,11 @@
           "</strong> " +
           (x.way === 1 ? "zásielka je" : x.way < 5 ? "zásielky sú" : "zásielok je") +
           " na ceste" +
-          (x.eta ? " (očakávaná " + esc(format(x.eta)) + ")" : ""),
+          (x.late
+            ? ", <strong>" + x.late + "</strong> " + (x.late === 1 ? "mešká" : "meškajú")
+            : x.eta
+              ? " (očakávaná " + esc(format(x.eta)) + ")"
+              : ""),
       );
     if (x.stock)
       p.push(
@@ -805,6 +819,7 @@
       esc(s0.carrier || "Zásielka") +
       " · " +
       shipNo(s0) +
+      (g.some(shipLate) ? " " + pill("Mešká", "warn") : "") +
       '</h2><div class="quick">' +
       (way.length && !data.readOnly
         ? '<button class="btn primary" data-shipset="' +
@@ -814,6 +829,7 @@
           '" data-all="1">Dorazilo na sklad</button>'
         : "") +
       (edit ? '<button class="btn" data-shipassign="' + s0.row + '">Priradiť zariadenia</button>' : "") +
+      (edit ? '<button class="btn" data-shipedit="' + s0.row + '">Opraviť</button>' : "") +
       '</div></div><p class="muted shipmeta">' +
       esc(
         [
@@ -841,7 +857,7 @@
             (s.city ? "<small>" + esc(s.city) + "</small>" : "") +
             "</td><td>" +
             shipPill(s.status) +
-            (shipWhen(s) ? "<small>" + esc(shipWhen(s)) + "</small>" : "") +
+            (shipWhen(s) ? "<small" + (shipLate(s) ? ' class="late"' : "") + ">" + esc(shipWhen(s)) + "</small>" : "") +
             (window.APPKA && window.APPKA.pendingFor && s.name && window.APPKA.pendingFor(s.name)
               ? " " + pill("Čaká na odoslanie", "warn")
               : "") +
@@ -956,14 +972,17 @@
       dlg.innerHTML =
         '<div class="panelhead"><h2 id="shipdlgtitle"></h2><button class="btn" type="button" data-close="shipdlg">Zavrieť</button></div>' +
         '<form class="dialogbody" id="shipform"><div class="formgrid" id="shipfields">' +
-        '<label class="field">Dopravca<input name="carrier" maxlength="40" placeholder="napr. DHL"></label>' +
+        '<label class="field">Dopravca<input name="carrier" maxlength="40" placeholder="napr. DHL" list="shipcarriers"></label>' +
+        '<datalist id="shipcarriers">' +
+        SHIP_CARRIERS.map((c) => "<option>" + esc(c) + "</option>").join("") +
+        "</datalist>" +
         '<label class="field">Číslo zásielky<input name="no" maxlength="60" placeholder="nepovinné"></label>' +
         '<label class="field">Odoslané<input name="sent" type="date"></label>' +
         '<label class="field">Očakávané doručenie<input name="eta" type="date"></label>' +
-        '<label class="field">Stav<select name="status"><option>Na ceste</option><option>Na sklade</option><option>Poslané zákazníkovi</option></select></label>' +
+        '<label class="field" id="shipstatusf">Stav<select name="status"><option>Na ceste</option><option>Na sklade</option><option>Poslané zákazníkovi</option></select></label>' +
         '<label class="field">Poznámka<input name="note" maxlength="500"></label></div>' +
-        '<label class="field">Zariadenia<input id="shipsearch" type="search" placeholder="Hľadať zariadenie podľa názvu alebo obce"></label>' +
-        '<div id="shiplist" class="shiplist"></div><div class="error" id="shiperror" hidden></div>' +
+        '<div id="shipdevs"><label class="field">Zariadenia<input id="shipsearch" type="search" placeholder="Hľadať zariadenie podľa názvu alebo obce"></label>' +
+        '<div id="shiplist" class="shiplist"></div></div><div class="error" id="shiperror" hidden></div>' +
         '<div class="formfoot"><button class="btn primary" id="shipsave">Uložiť</button></div></form>';
       document.body.append(dlg);
       $("shipsearch").addEventListener("input", shipListPaint);
@@ -976,19 +995,26 @@
       });
       $("shipform").addEventListener("submit", shipDialogSave);
     }
-    const s = mode === "assign" ? (data.shipments || []).find((x) => x.row === +row) : null;
-    if (mode === "assign" && !s) return;
+    const s = mode !== "add" ? (data.shipments || []).find((x) => x.row === +row) : null;
+    if (mode !== "add" && !s) return;
     shipDlg = { mode, row: s ? s.row : 0, picked: new Set() };
-    $("shipdlgtitle").textContent = s ? "Zariadenia v zásielke " + (s.no || "") : "Nová zásielka";
-    $("shipfields").hidden = !!s;
-    const el = $("shipform").elements;
-    el.carrier.value = el.no.value = el.eta.value = el.note.value = "";
-    el.sent.value = data.today;
+    $("shipdlgtitle").textContent =
+      mode === "edit" ? "Opraviť zásielku" : s ? "Zariadenia v zásielke " + (s.no || "") : "Nová zásielka";
+    $("shipfields").hidden = mode === "assign";
+    $("shipstatusf").hidden = mode === "edit";
+    $("shipdevs").hidden = mode === "edit";
+    const el = $("shipform").elements,
+      e = mode === "edit" ? s : null;
+    el.carrier.value = e ? e.carrier : "";
+    el.no.value = e ? e.no : "";
+    el.eta.value = e ? e.eta : "";
+    el.note.value = e ? e.note : "";
+    el.sent.value = e ? e.sent : data.today;
     el.sent.max = data.today;
     el.status.value = SHIP.onWay;
     $("shipsearch").value = "";
     $("shiperror").hidden = true;
-    $("shipsave").textContent = s ? "Priradiť zariadenia" : "Pridať zásielku";
+    $("shipsave").textContent = mode === "edit" ? "Uložiť opravu" : s ? "Priradiť zariadenia" : "Pridať zásielku";
     shipListPaint();
     dlg.showModal();
   }
@@ -1043,14 +1069,19 @@
       };
     $("shiperror").hidden = true;
     if (shipDlg.mode === "assign" && (!s || !devices.length)) return fail("Vyber aspoň jedno zariadenie.");
+    if (shipDlg.mode === "edit" && !s) return fail("Zásielka sa medzičasom zmenila. Zavri okno a skús to znova.");
     if (shipDlg.mode === "add" && !devices.length && !el.no.value.trim())
       return fail("Zadaj číslo zásielky alebo vyber aspoň jedno zariadenie.");
     $("shipsave").disabled = true;
     statusSaving = true;
     try {
+      const edit = shipDlg.mode === "edit",
+        fields = { no: el.no.value, carrier: el.carrier.value, sent: el.sent.value, eta: el.eta.value, note: el.note.value };
       const r = await timedSave(
-        s ? "shipAssign" : "shipAdd",
-        s
+        edit ? "shipEdit" : s ? "shipAssign" : "shipAdd",
+        edit
+          ? Object.assign({ row: s.row, name: s.name, version: s.version }, fields)
+          : s
           ? { row: s.row, name: s.name, version: s.version, devices }
           : {
               no: el.no.value,
@@ -1063,7 +1094,15 @@
             },
       );
       $("shipdlg").close();
-      toast(s ? "Zariadenia boli priradené k zásielke." : "Zásielka bola pridaná.");
+      toast(
+        edit
+          ? r && r.unchanged
+            ? "Zásielka sa nezmenila."
+            : "Zásielka bola opravená."
+          : s
+            ? "Zariadenia boli priradené k zásielke."
+            : "Zásielka bola pridaná.",
+      );
       await applySaved(r);
     } catch (err) {
       fail(err.message);
@@ -1469,14 +1508,23 @@
       .filter(Boolean)
       .map((e) => '<a href="mailto:' + esc(e.trim()) + '">' + esc(e.trim()) + "</a>")
       .join("<br>");
+    if (contactEdit && contactEdit !== d.row) contactEdit = 0;
+    if (ico.row && ico.row !== d.row && !ico.busy) ico = icoReset();
+    const typed = contactEdit && $("contactform") ? contactValues() : null; // obnova dashboardu nezahodí rozpísané údaje
     $("detailcontent").innerHTML =
       (d.flags.length ? '<div class="banner">' + esc(d.flags.join(" · ")) + "</div>" : "") +
-      '<div class="detailgrid"><div class="detailbox"><h3>Kontakt</h3><p><strong>' +
-      esc(d.person) +
-      "</strong></p>" +
-      line("phone", d.phone ? phoneLinks : "") +
-      line("mail", mailLinks) +
-      line("place", esc([d.address, d.district].filter(Boolean).join(", "))) +
+      '<div class="detailgrid"><div class="detailbox"><h3>Kontakt</h3>' +
+      (contactEdit
+        ? contactForm(typed || d)
+        : "<p><strong>" +
+          esc(d.person) +
+          "</strong></p>" +
+          line("phone", d.phone ? phoneLinks : "") +
+          line("mail", mailLinks) +
+          line("place", esc([d.address, d.district].filter(Boolean).join(", "))) +
+          (d.web ? line("link", web(d.web)) : "") +
+          (data.readOnly ? "" : '<p><button class="btn" data-contactedit="' + d.row + '">Upraviť kontakt</button></p>') +
+          buyerBox(d)) +
       '</div><div class="detailbox"><h3>Aktuálny stav</h3><p>' +
       esc(d.type) +
       "</p><p>" +
@@ -1623,10 +1671,33 @@
     if (ds.shipset) shipSet(ds.shipset, ds.status, ds.all === "1", b);
     if (ds.shipassign) afterRefresh(() => shipDialog("assign", ds.shipassign));
     if (ds.shipadd) afterRefresh(() => shipDialog("add"));
+    if (ds.shipedit) afterRefresh(() => shipDialog("edit", ds.shipedit));
     if (b.id === "shipscan") shipScanRun(b);
     if (ds.setstatus) {
       if (refreshing) toast("Ešte obnovujem údaje po uložení, stav zmeň o chvíľu.");
       else saveStatus(ds.setstatus, b);
+    }
+    if (ds.contactedit) {
+      contactEdit = +ds.contactedit;
+      detail(contactEdit);
+      const i = $("contactform") && $("contactform").elements.person;
+      if (i) i.focus();
+    }
+    if (ds.icofind) icoFind(+ds.icofind, "");
+    if (ds.icopick) icoPick(ds.icopick);
+    if (ds.quote) openQuoteForm(+ds.quote);
+    if (ds.quotecancel) {
+      quoteForm = 0;
+      if (detailRow) detail(detailRow);
+    }
+    if (ds.qpdf) quotePdf(+ds.row, ds.qpdf, b);
+    if (ds.icoclose && !ico.busy) {
+      ico = icoReset();
+      if (detailRow) detail(detailRow);
+    }
+    if (ds.contactcancel && !contactSaving) {
+      contactEdit = 0;
+      if (detailRow) detail(detailRow);
     }
     if (b.dataset.close && !saving && !visitSaving && !editSaving && !doneSaving) $(b.dataset.close).close();
   });
@@ -2060,6 +2131,439 @@
       statusSaving = false;
     }
   }
+  // ---------- odberateľ (IČO) v karte zariadenia (icoSearch, icoSave – src/Ico.js) ----------
+  // Hľadá sa v registri RPO až po kliknutí; odberateľa vyberá vždy človek (zariadenie často fakturuje zriaďovateľ).
+  // Len v dashboarde a len vlastník – appka ani čitatelia tlačidlo nemajú.
+  const icoReset = () => ({ row: 0, busy: "", cands: null, q: "", error: "" });
+  let ico = icoReset();
+  const icoCan = () => data && !data.readOnly && !window.APPKA;
+  const icoAddr = (b) => [b.street, [b.zip, b.city].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  function buyerBox(d) {
+    const b = d.buyer,
+      open = ico.row === d.row;
+    return (
+      '<div class="buyer"><h4>Odberateľ (fakturácia)</h4>' +
+      (b
+        ? "<p><strong>" +
+          esc(b.name) +
+          "</strong><br>IČO " +
+          esc(b.ico) +
+          '<br><span class="muted">' +
+          esc(icoAddr(b)) +
+          "</span></p>"
+        : '<p class="muted">IČO zatiaľ nie je priradené.</p>') +
+      (icoCan() && !open
+        ? '<p><button class="btn" data-icofind="' +
+          d.row +
+          '">' +
+          (b ? "Zmeniť odberateľa" : "Nájsť IČO") +
+          "</button></p>"
+        : "") +
+      (open ? icoPanel(d) : "") +
+      quotesBox(d) +
+      "</div>"
+    );
+  }
+  function icoPanel(d) {
+    const mine = d.buyer && d.buyer.ico;
+    let h = '<div class="icopanel">';
+    if (ico.busy) h += '<p class="muted">' + esc(ico.busy) + "</p>";
+    else {
+      if (ico.error) h += '<div class="banner">' + esc(ico.error) + "</div>";
+      if (ico.cands && ico.cands.length)
+        h +=
+          '<p class="muted" style="font-size:13px;margin:6px 0">Návrhy z registra – vyber, kto bude na ponuke a faktúre:</p><ul class="icolist">' +
+          ico.cands
+            .map(
+              (c) =>
+                "<li><div><strong>" +
+                esc(c.name) +
+                '</strong> <span class="muted">IČO ' +
+                esc(c.ico) +
+                '</span><br><span class="muted" style="font-size:13px">' +
+                esc(icoAddr(c)) +
+                "</span> " +
+                (c.why || []).map((w) => pill(w, w === "rovnaká adresa" ? "success" : "")).join(" ") +
+                '</div><button class="btn' +
+                (mine === c.ico ? '" disabled>Priradený' : ' primary" data-icopick="' + esc(c.ico) + '">Vybrať') +
+                "</button></li>",
+            )
+            .join("") +
+          "</ul>";
+      else if (ico.cands)
+        h +=
+          '<p class="muted">V registri sa nič vhodné nenašlo. Skús iný názov (napr. zriaďovateľa) alebo zadaj IČO.</p>';
+    }
+    return (
+      h +
+      '<form id="icoform" class="icoform"><input name="q" maxlength="200" placeholder="Iný názov alebo IČO" aria-label="Hľadať odberateľa podľa názvu alebo IČO" value="' +
+      esc(ico.q) +
+      '"><button type="submit" class="btn"' +
+      (ico.busy ? " disabled" : "") +
+      '>Hľadať</button><button type="button" class="btn" data-icoclose="1"' +
+      (ico.busy ? " disabled" : "") +
+      '>Zavrieť</button></form><p class="muted" style="font-size:12px;margin:4px 0 0">Zdroj: register RPO, Štatistický úrad SR (CC BY 4.0).</p></div>'
+    );
+  }
+  async function icoFind(row, q) {
+    const d = byRow.get(row);
+    if (!d || ico.busy || window.PREVIEW_DATA) return;
+    ico = {
+      row: d.row,
+      busy: q ? "Hľadám „" + q + "“ v registri…" : "Hľadám v registri RPO… (môže to trvať do pol minúty)",
+      cands: ico.row === d.row ? ico.cands : null,
+      q,
+      error: "",
+    };
+    detail(d.row);
+    try {
+      const r = await api("icoSearch", q ? { row: d.row, name: d.name, q } : { row: d.row, name: d.name });
+      ico.cands = r.cands || [];
+    } catch (e) {
+      ico.error = "Hľadanie zlyhalo: " + ((e && e.message) || e);
+    }
+    ico.busy = "";
+    if ($("detail").open && detailRow === d.row) detail(d.row);
+  }
+  async function icoPick(no) {
+    const d = byRow.get(ico.row);
+    if (!d || ico.busy) return;
+    if (refreshing) {
+      toast("Ešte obnovujem údaje po uložení, vyber o chvíľu.");
+      return;
+    }
+    ico.busy = "Ukladám odberateľa…";
+    ico.error = "";
+    detail(d.row);
+    try {
+      const r = await api("icoSave", { row: d.row, name: d.name, ico: no });
+      d.buyer = r.buyer;
+      ico = icoReset();
+      toast("Odberateľ uložený: " + r.buyer.name + " (IČO " + r.buyer.ico + ").");
+      if ($("detail").open && detailRow === d.row) detail(d.row);
+      refresh(true, "odberateľ");
+    } catch (e) {
+      ico.busy = "";
+      ico.error = "Uloženie zlyhalo: " + ((e && e.message) || e);
+      if ($("detail").open && detailRow === d.row) detail(d.row);
+    }
+  }
+  // ---------- cenová ponuka vo Flowii (flowiiQuote, flowiiPdf – src/Flowii.js) ----------
+  // Ponuka sa robí pre uloženého odberateľa (IČO); produkty a počty sa vyberú vo formulári (predvolene všetkých päť
+  // po 1 ks, data.quoteGoods). Z Flowii sa nič neodosiela.
+  let quoteBusy = 0,
+    quoteForm = 0;
+  const euro = (n) => (+n || 0).toLocaleString("sk-SK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+  function quotesBox(d) {
+    const list = d.quotes || [];
+    let h = list.length
+      ? list
+          .slice()
+          .reverse()
+          .map(
+            (q) =>
+              '<p class="quoteline">Ponuka č. <strong>' +
+              esc(q.no || q.id) +
+              "</strong> z " +
+              esc(q.date) +
+              (q.sum ? ' <span class="muted">· ' + esc(euro(q.sum)) + " bez DPH</span>" : "") +
+              (icoCan()
+                ? ' <button class="btn" data-qpdf="' + esc(q.id) + '" data-row="' + d.row + '">PDF</button>'
+                : "") +
+              "</p>",
+          )
+          .join("")
+      : "";
+    if (icoCan() && d.buyer && quoteForm === d.row && !quoteBusy) return h + quoteFormHtml();
+    if (icoCan() && d.buyer)
+      h +=
+        quoteBusy === d.row
+          ? '<p class="muted">Vytváram ponuku vo Flowii… (môže to trvať do pol minúty)</p>'
+          : '<p><button class="btn' +
+            (list.length ? "" : " primary") +
+            '" data-quote="' +
+            d.row +
+            '">' +
+            (list.length ? "Ďalšia cenová ponuka" : "Cenová ponuka vo Flowii") +
+            "</button></p>";
+    return h;
+  }
+  function quoteFormHtml() {
+    return (
+      '<form id="quoteform" class="quoteform"><p class="muted" style="font-size:13px;margin:6px 0">Produkty na ponuku (ceny bez DPH z cenníka Flowii):</p>' +
+      (data.quoteGoods || [])
+        .map(
+          (g) =>
+            '<label class="quoterow"><input type="checkbox" name="on" value="' +
+            esc(g.id) +
+            '" checked><span>' +
+            esc(g.name) +
+            ' <span class="muted">' +
+            esc(euro(g.price)) +
+            '</span></span><input type="number" name="q' +
+            esc(g.id) +
+            '" min="1" max="999" step="1" value="1" aria-label="Počet kusov ' +
+            esc(g.name) +
+            '"></label>',
+        )
+        .join("") +
+      '<p class="quotetotal" id="quotetotal"></p><p style="display:flex;gap:8px;flex-wrap:wrap"><button type="submit" class="btn primary">Vytvoriť ponuku</button><button type="button" class="btn" data-quotecancel="1">Zrušiť</button></p></form>'
+    );
+  }
+  // vybrané produkty z formulára → [{id, qty}]; null = neplatný počet kusov
+  function quoteItems() {
+    const f = $("quoteform");
+    if (!f) return [];
+    const out = [];
+    for (const g of data.quoteGoods || []) {
+      const on = f.querySelector('input[name="on"][value="' + g.id + '"]'),
+        qty = +f.elements["q" + g.id].value;
+      if (!on.checked) continue;
+      if (!Number.isInteger(qty) || qty < 1 || qty > 999) return null;
+      out.push({ id: g.id, qty });
+    }
+    return out;
+  }
+  function quoteTotal() {
+    const items = quoteItems(),
+      el = $("quotetotal");
+    if (!el) return;
+    if (!items) el.textContent = "Počet kusov musí byť celé číslo od 1 do 999.";
+    else if (!items.length) el.textContent = "Vyber aspoň jeden produkt.";
+    else
+      el.textContent =
+        "Spolu " +
+        euro(items.reduce((s, x) => s + x.qty * data.quoteGoods.find((g) => g.id === x.id).price, 0)) +
+        " bez DPH (" +
+        items.reduce((s, x) => s + x.qty, 0) +
+        " ks)";
+  }
+  function openQuoteForm(row) {
+    const d = byRow.get(row);
+    if (!d || quoteBusy || window.PREVIEW_DATA) return;
+    if (!data.quoteGoods || !data.quoteGoods.length) {
+      toast("Zoznam produktov sa ešte nenačítal. Obnov dashboard (Obnoviť).");
+      return;
+    }
+    quoteForm = d.row;
+    detail(d.row);
+    quoteTotal();
+  }
+  async function makeQuote(row) {
+    const d = byRow.get(row);
+    if (!d || quoteBusy || window.PREVIEW_DATA) return;
+    const items = quoteItems();
+    if (!items || !items.length) {
+      quoteTotal();
+      return;
+    }
+    const again = !!(d.quotes && d.quotes.length);
+    if (again && !confirm("Pre toto zariadenie už ponuka je. Vytvoriť vo Flowii ďalšiu?")) return;
+    quoteBusy = d.row;
+    quoteForm = 0;
+    detail(d.row);
+    try {
+      const r = await api("flowiiQuote", { row: d.row, name: d.name, items, again });
+      d.quotes = (d.quotes || []).concat([r.quote]);
+      toast(
+        "Ponuka č. " +
+          r.quote.no +
+          " je vo Flowii" +
+          (r.partnerCreated ? " (odberateľ bol vo Flowii založený)" : "") +
+          ".",
+      );
+      refresh(true, "ponuka");
+    } catch (e) {
+      toast("Ponuku sa nepodarilo vytvoriť: " + ((e && e.message) || e));
+    }
+    quoteBusy = 0;
+    if ($("detail").open && detailRow === d.row) detail(d.row);
+  }
+  function b64Bytes(b64) {
+    const bin = atob(b64),
+      bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+  /* Strana „Ponúkané produkty“ (src/Ponuka.js) sa pripojí za PDF z Flowii knižnicou pdf-lib (načíta sa až pri prvom
+     PDF, s kontrolným odtlačkom). Strany prílohy sa vložia ako obraz strany zmenšený na šírku prvej strany ponuky
+     (A4 z Flowii), aby mal celý súbor rovnaký formát. Stránky z Flowii sa nemenia. */
+  const PDFLIB = {
+    js: "https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js",
+    hash: "sha256-D5pcrQeUHwgmWGyU4InYm5GMRuXBfPLVo8b2ZuO8aU8=",
+  };
+  let pdfLibLoading = null;
+  function loadPdfLib() {
+    if (window.PDFLib) return Promise.resolve();
+    if (!pdfLibLoading)
+      pdfLibLoading = new Promise((resolve, reject) => {
+        const el = Object.assign(document.createElement("script"), {
+          src: PDFLIB.js,
+          integrity: PDFLIB.hash,
+          crossOrigin: "anonymous",
+        });
+        el.onload = resolve;
+        el.onerror = () => {
+          el.remove();
+          pdfLibLoading = null;
+          reject(new Error("knižnicu PDF sa nepodarilo načítať"));
+        };
+        document.head.appendChild(el);
+      });
+    return pdfLibLoading;
+  }
+  async function pdfAppend(main, extra) {
+    await loadPdfLib();
+    const { PDFDocument } = window.PDFLib,
+      out = await PDFDocument.load(main),
+      add = await PDFDocument.load(extra),
+      first = out.getPage(0).getSize(),
+      pages = await out.embedPdf(add, add.getPageIndices());
+    pages.forEach((ep) => {
+      const s = Math.min(first.width / ep.width, first.height / ep.height),
+        page = out.addPage([first.width, first.height]);
+      page.drawPage(ep, {
+        x: (first.width - ep.width * s) / 2,
+        y: first.height - ep.height * s,
+        width: ep.width * s,
+        height: ep.height * s,
+      });
+    });
+    return out.save();
+  }
+  async function quotePdf(row, id, btn) {
+    const d = byRow.get(row);
+    if (!d || btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = "Sťahujem…";
+    try {
+      const r = await api("flowiiPdf", { row: d.row, name: d.name, id });
+      let bytes = b64Bytes(r.b64),
+        note = r.extraNote || "";
+      if (r.extra)
+        try {
+          bytes = await pdfAppend(bytes, b64Bytes(r.extra));
+        } catch (e) {
+          note = "Stranu s fotkami produktov sa nepodarilo pripojiť (" + ((e && e.message) || e) + ").";
+        }
+      if (note) toast("PDF z Flowii je stiahnuté. " + note);
+      const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" })),
+        a = document.createElement("a");
+      a.href = url;
+      a.download = r.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      toast("PDF sa nepodarilo stiahnuť: " + ((e && e.message) || e));
+    }
+    btn.disabled = false;
+    btn.textContent = "PDF";
+  }
+  // ---------- úprava kontaktu v karte zariadenia (saveContact) ----------
+  // Názov, obec a okres sa tu nemenia – podľa nich sa páruje história, mapa, zásielky a kalendár (menia sa v tabuľke).
+  const CONTACT_FIELDS = [
+    ["person", "Kontaktná osoba / oddelenie", 500],
+    ["phone", "Telefón", 500],
+    ["email", "E-mail", 500],
+    ["address", "Adresa", 500],
+    ["web", "Zdroj / web", 1000],
+    ["businessNote", "Obchodná poznámka", 5000, true],
+  ];
+  let contactEdit = 0,
+    contactSaving = false;
+  // odkaz na web ukáže len adresu stránky; iný text (napr. „register ŽSK“) ostane textom
+  function web(v) {
+    if (!/^https?:\/\/\S+$/i.test(v)) return esc(v);
+    let host = v;
+    try {
+      host = new URL(v).hostname.replace(/^www\./, "");
+    } catch (e) {}
+    return '<a target="_blank" rel="noopener" href="' + esc(v) + '">' + esc(host) + "</a>";
+  }
+  function contactForm(v) {
+    return (
+      '<form id="contactform">' +
+      CONTACT_FIELDS.map(
+        ([k, label, max, area]) =>
+          '<label class="field">' +
+          label +
+          (area
+            ? '<textarea name="' + k + '" maxlength="' + max + '" rows="3">' + esc(v[k]) + "</textarea>"
+            : '<input name="' + k + '" maxlength="' + max + '" value="' + esc(v[k]) + '">') +
+          "</label>",
+      ).join("") +
+      '<p class="muted" style="font-size:13px;margin:4px 0 8px">Viac telefónov alebo e-mailov oddeľ bodkočiarkou. Názov, obec a okres sa menia v tabuľke.</p>' +
+      '<p style="display:flex;gap:8px;flex-wrap:wrap"><button type="submit" class="btn primary" id="contactsave">Uložiť kontakt</button><button type="button" class="btn" data-contactcancel="1">Zrušiť</button></p></form>'
+    );
+  }
+  function contactValues() {
+    const el = $("contactform").elements,
+      v = {};
+    CONTACT_FIELDS.forEach(([k]) => (v[k] = el[k].value.trim()));
+    return v;
+  }
+  async function saveContact() {
+    if (contactSaving || window.PREVIEW_DATA) return;
+    const d = byRow.get(contactEdit);
+    if (!d || !$("contactform")) return;
+    if (refreshing) {
+      toast("Ešte obnovujem údaje po uložení, ulož o chvíľu.");
+      return;
+    }
+    const v = contactValues();
+    if (CONTACT_FIELDS.every(([k]) => v[k] === (d[k] || "").trim())) {
+      contactEdit = 0;
+      detail(d.row);
+      toast("Kontakt sa nezmenil.");
+      return;
+    }
+    const btn = $("contactsave");
+    contactSaving = true;
+    btn.disabled = true;
+    btn.textContent = "Ukladám…";
+    try {
+      const r = await timedSave("saveContact", Object.assign({ row: d.row, name: d.name, version: d.version }, v));
+      if (!(r && r.queued)) toast("Kontakt uložený.");
+      contactEdit = 0;
+      await applySaved(r);
+      if ($("detail").open) detail(d.row);
+    } catch (e) {
+      toast("Uloženie kontaktu zlyhalo: " + e.message);
+      btn.disabled = false;
+      btn.textContent = "Uložiť kontakt";
+    } finally {
+      contactSaving = false;
+    }
+  }
+  $("detail").addEventListener("submit", (e) => {
+    if (e.target.id !== "contactform") return;
+    e.preventDefault();
+    saveContact();
+  });
+  $("detail").addEventListener("submit", (e) => {
+    if (e.target.id !== "quoteform") return;
+    e.preventDefault();
+    makeQuote(quoteForm);
+  });
+  $("detail").addEventListener("input", (e) => {
+    if (e.target.closest("#quoteform")) quoteTotal();
+  });
+  $("detail").addEventListener("change", (e) => {
+    if (e.target.closest("#quoteform")) quoteTotal();
+  });
+  $("detail").addEventListener("submit", (e) => {
+    if (e.target.id !== "icoform") return;
+    e.preventDefault();
+    const q = e.target.elements.q.value.trim();
+    if (q) icoFind(ico.row, q);
+  });
+  $("detail").addEventListener("close", () => {
+    if (!contactSaving) contactEdit = 0;
+    if (!ico.busy) ico = icoReset();
+    quoteForm = 0;
+  });
   $("call").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-cplus]");
     if (b) f().deadline.value = addDays(+b.dataset.cplus);
