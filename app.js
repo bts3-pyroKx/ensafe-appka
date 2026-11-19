@@ -932,6 +932,11 @@
       if (el && el.tagName === "SELECT") el.value = s.status;
       return;
     }
+    // doručenie zariadeniu: okno s nepovinným naplánovaním ďalšieho kontaktu (školenie)
+    if (st === SHIP.done && s.dev && byRow.get(s.dev) && !data.readOnly) {
+      if (el && el.tagName === "SELECT") el.value = s.status;
+      return openShipDone(s);
+    }
     const ok = await shipSave(
       "shipSetStatus",
       { row: s.row, name: s.name, version: s.version, status: st, all: !!all },
@@ -941,6 +946,50 @@
     if (!ok && el && el.tagName === "SELECT") el.value = s.status;
     if (ok && $("detail").open && detailRow) detail(detailRow);
   }
+  let shipDoneRow = null;
+  const sdf = () => $("shipdoneform").elements;
+  function openShipDone(s) {
+    const d = byRow.get(s.dev);
+    shipDoneRow = s;
+    $("shipdonename").textContent = s.name + (s.city ? ", " + s.city : "");
+    sdf().plan.checked = false;
+    $("shipdoneplan").hidden = true;
+    sdf().action.value = "Školenie – ako používať produkty EnSafe";
+    sdf().deadline.value = "";
+    sdf().deadline.min = data.today;
+    $("shipdonehint").textContent = nextHint(d);
+    $("shipdoneerror").hidden = true;
+    $("saveshipdone").disabled = !!window.PREVIEW_DATA;
+    $("shipdone").showModal();
+  }
+  sdf().plan.onchange = () => {
+    $("shipdoneplan").hidden = !sdf().plan.checked;
+    sdf().deadline.required = sdf().plan.checked;
+  };
+  $("shipdone").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-splus]");
+    if (b) sdf().deadline.value = addDays(+b.dataset.splus);
+  });
+  $("shipdone").addEventListener("cancel", (e) => {
+    if (statusSaving) e.preventDefault();
+  });
+  $("shipdoneform").onsubmit = async (e) => {
+    e.preventDefault();
+    const s = shipDoneRow;
+    if (!s || statusSaving) return;
+    const arg = { row: s.row, name: s.name, version: s.version, status: SHIP.done, all: false };
+    if (sdf().plan.checked) arg.plan = { row: s.dev, action: sdf().action.value, deadline: sdf().deadline.value };
+    const ok = await shipSave(
+      "shipSetStatus",
+      arg,
+      "Zásielka – " + s.name + ": " + SHIP.done + (arg.plan ? ", ďalší kontakt naplánovaný." : "."),
+      $("saveshipdone"),
+    );
+    if (!ok) return;
+    $("saveshipdone").disabled = false;
+    $("shipdone").close();
+    if ($("detail").open && detailRow) detail(detailRow);
+  };
   async function shipScanRun(btn) {
     if (btn.disabled) return;
     btn.disabled = true;
@@ -2185,8 +2234,12 @@
     vf().date.disabled = false;
     vf().visited.checked = true;
     vf().note.value = "";
+    vf().nextAction.value = "";
+    vf().nextDeadline.value = "";
+    vf().nextDeadline.min = data.today;
     $("visiterror").hidden = true;
     visitSelected = data.devices.find((d) => d.row === +vf().device.value);
+    visitNextHint();
     visitPending = crypto.randomUUID();
     $("savevisit").disabled = !!window.PREVIEW_DATA;
     $("visit").showModal();
@@ -2197,8 +2250,22 @@
   }
   vf().device.onchange = () => {
     visitSelected = data.devices.find((d) => d.row === +vf().device.value);
+    visitNextHint();
     visitPending = crypto.randomUUID();
   };
+  // doterajší ďalší krok zariadenia – nový ho nahradí
+  function nextHint(d) {
+    return d && (d.action || d.deadline)
+      ? "Teraz: " + (d.action || "bez popisu") + (d.deadline ? " (" + format(d.deadline) + ")" : "") + " – nahradí sa."
+      : "";
+  }
+  function visitNextHint() {
+    $("visitnexthint").textContent = nextHint(visitSelected);
+  }
+  $("visit").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-vplus]");
+    if (b) vf().nextDeadline.value = addDays(+b.dataset.vplus);
+  });
   vf().eventId.onchange = () => {
     const a = (data.activities || []).find((a) => a.id === vf().eventId.value);
     vf().type.disabled = !!a;
@@ -2230,6 +2297,8 @@
       note: vf().note.value,
       visited: vf().visited.checked,
     };
+    if (vf().nextAction.value.trim() || vf().nextDeadline.value)
+      p.plan = { action: vf().nextAction.value, deadline: vf().nextDeadline.value };
     visitSaving = true;
     Array.from(vf()).forEach((el) => (el.disabled = true));
     $("visiterror").hidden = true;
@@ -2237,7 +2306,7 @@
     try {
       const r = await timedSave("saveActivity", p);
       $("visit").close();
-      toast("Návšteva / ukážka bola uložená.");
+      toast("Návšteva / ukážka bola uložená" + (p.plan ? " aj s ďalším krokom." : "."));
       await applySaved(r);
     } catch (err) {
       $("visiterror").textContent = err.message;

@@ -40,7 +40,10 @@
 <label class="field">Dátum návštevy / ukážky (ak ho poznáš)<input name="date" type="date"></label>
 <label class="checkbox full"><input name="visited" type="checkbox" checked>Bol som osobne na tomto pracovisku</label>
 <label class="field full">Poznámka<textarea name="note" maxlength="10000" placeholder="Priebeh, účastníci a záujem o produkty"></textarea></label>
-</div><p class="muted">Pri spoločnej ukážke priraď ďalšie zastúpené pracovisko k rovnakej udalosti. Prázdny dátum ponechá termín ako nezadaný.</p><p id="visiterror" class="error" hidden role="alert"></p><div class="formfoot"><button type="button" class="btn" data-close="visit">Zrušiť</button><button type="submit" class="btn primary" id="savevisit">Uložiť návštevu / ukážku</button></div></form></div></dialog>
+<label class="field full">Ďalší krok (nepovinné)<textarea name="nextAction" maxlength="3000" rows="2" style="min-height:60px" placeholder="Napr. Zavolať, ako sa rozhodli"></textarea><small id="visitnexthint" class="muted"></small></label>
+<label class="field">Termín ďalšieho kroku<input name="nextDeadline" type="date"></label>
+<div class="field"><span>Rýchly výber termínu</span><div class="quick"><button type="button" class="btn" data-vplus="3">+3 dni</button><button type="button" class="btn" data-vplus="7">+7 dní</button><button type="button" class="btn" data-vplus="14">+14 dní</button><button type="button" class="btn" data-vplus="30">+30 dní</button></div></div>
+</div><p class="muted">Ďalší krok sa zapíše zariadeniu ako úloha (nahradí doterajší ďalší krok). Pri spoločnej ukážke priraď ďalšie zastúpené pracovisko k rovnakej udalosti. Prázdny dátum ponechá termín ako nezadaný.</p><p id="visiterror" class="error" hidden role="alert"></p><div class="formfoot"><button type="button" class="btn" data-close="visit">Zrušiť</button><button type="submit" class="btn primary" id="savevisit">Uložiť návštevu / ukážku</button></div></form></div></dialog>
 <dialog id="calledit"><div class="panelhead"><h2>Upraviť telefonát</h2><button class="btn" data-close="calledit">Zavrieť</button></div><div class="dialogbody"><form id="calleditform"><p id="calleditname" style="margin-top:0;font-weight:600"></p><div class="formgrid">
 <label class="field">Dátum hovoru<input name="date" type="date" required></label><label class="field">Termín stretnutia<input name="appointment" type="datetime-local"></label>
 <label class="field">Volané číslo<input name="phone" maxlength="500"></label><label class="field">S kým si hovoril<input name="person" maxlength="500"></label>
@@ -55,6 +58,13 @@
 <label class="field">Termín ďalšieho kroku<input name="deadline" type="date"></label>
 <div class="field"><span>Rýchly výber termínu</span><div class="quick"><button type="button" class="btn" data-plus="1">Zajtra</button><button type="button" class="btn" data-plus="3">+3 dni</button><button type="button" class="btn" data-plus="7">+7 dní</button><button type="button" class="btn" data-plus="14">+14 dní</button></div></div>
 </div><label class="checkbox full" style="display:flex;gap:8px;align-items:center;margin-top:10px"><input name="logCall" type="checkbox">Bol to telefonát – zapísať aj do denníka hovorov</label><p id="donewarn" class="banner" hidden></p><p id="doneerror" class="error" hidden role="alert"></p><div class="formfoot"><button type="button" class="btn" data-close="done">Zrušiť</button><button type="submit" class="btn primary" id="savedone">Uložiť</button></div></form></div></dialog>
+<dialog id="shipdone"><div class="panelhead"><h2>Tovar doručený</h2><button class="btn" data-close="shipdone">Zavrieť</button></div><div class="dialogbody"><form id="shipdoneform"><p id="shipdonename" style="margin-top:0;font-weight:600"></p>
+<label class="checkbox full" style="display:flex;gap:8px;align-items:center"><input name="plan" type="checkbox">Naplánovať ďalší kontakt (napr. školenie k používaniu)</label>
+<div class="formgrid" id="shipdoneplan" hidden>
+<label class="field full">Ďalší krok<textarea name="action" maxlength="3000" rows="2" style="min-height:60px"></textarea><small id="shipdonehint" class="muted"></small></label>
+<label class="field">Termín<input name="deadline" type="date"></label>
+<div class="field"><span>Rýchly výber termínu</span><div class="quick"><button type="button" class="btn" data-splus="3">+3 dni</button><button type="button" class="btn" data-splus="7">+7 dní</button><button type="button" class="btn" data-splus="14">+14 dní</button></div></div>
+</div><p id="shipdoneerror" class="error" hidden role="alert"></p><div class="formfoot"><button type="button" class="btn" data-close="shipdone">Zrušiť</button><button type="submit" class="btn primary" id="saveshipdone">Uložiť doručenie</button></div></form></div></dialog>
 <dialog id="devicesdlg"><div class="panelhead"><h2>Appka a zariadenia</h2><button class="btn" data-close="devicesdlg">Zavrieť</button></div><div class="dialogbody">
 <p class="muted">Appka v telefóne alebo počítači funguje aj bez signálu. Každé zariadenie sa pripája zvlášť a dá sa kedykoľvek zrušiť.</p>
 <div id="deviceslist"></div>
