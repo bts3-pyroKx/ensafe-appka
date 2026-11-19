@@ -540,9 +540,24 @@
   }
   .formfoot {
     display: flex;
+    flex-wrap: wrap; /* bez zalamovania tlačidlá v úzkom okne pretečú doľava mimo obrazovky */
     justify-content: flex-end;
     gap: 8px;
     margin-top: 24px;
+  }
+  @media (max-width: 700px) {
+    /* tlačidlá v karte zariadenia: mriežka po dvoch, hlavné tlačidlo cez celú šírku */
+    .detailfoot {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+    .detailfoot .btn {
+      justify-content: center;
+      text-align: center;
+    }
+    .detailfoot .btn.primary {
+      grid-column: 1/-1;
+    }
   }
   .checkbox {
     display: flex;

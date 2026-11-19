@@ -1962,7 +1962,7 @@
       esc(d.note || "Bez poznámky") +
       '</p><p class="muted">' +
       esc(d.businessNote) +
-      '</p></div></div><div class="formfoot"><a class="btn" target="_blank" rel="noopener" href="' +
+      '</p></div></div><div class="formfoot detailfoot"><a class="btn" target="_blank" rel="noopener" href="' +
       esc(data.sourceUrl + "&range=A" + d.row + ":R" + d.row) +
       '">Otvoriť v tabuľke</a>' +
       (d.lat != null ? '<button class="btn" data-showmap="' + d.row + '">Ukázať na mape</button>' : "") +
