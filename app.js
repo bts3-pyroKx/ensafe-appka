@@ -226,9 +226,11 @@
   }
   const CAL_WRITES = ["saveCall", "completeTask", "setStatus", "saveContact"]; // saveContact: miesto a kontakt v udalosti
   function syncCalendarLater() {
-    api("syncCalendar").catch((e) =>
-      toast("Kalendár ukážok sa nepodarilo aktualizovať (dorobí sa do 15 minút): " + ((e && e.message) || e)),
-    );
+    api("syncCalendar")
+      .then((r) => calSyncResult(r, false))
+      .catch((e) =>
+        toast("Kalendár ukážok sa nepodarilo aktualizovať (dorobí sa do 15 minút): " + ((e && e.message) || e)),
+      );
   }
   // Po uložení sa okno zavrie hneď a dashboard sa obnoví na pozadí (nečaká sa naň).
   async function applySaved(r) {
@@ -1111,7 +1113,354 @@
       $("shipsave").disabled = false;
     }
   }
+  /* ---------- kalendár ukážok (záložka Kalendár) ----------
+     Termíny zo stĺpca L (d.appointment) po mesiacoch. Potvrdené budúce termíny sú v Google kalendári „Ukážky EnSafe“
+     a synchronizujú sa obojsmerne (src/Kalendar.js): posun v Google kalendári sa zapíše sem, zmazaná udalosť čaká
+     na rozhodnutie (data.calRemoved). Pri otvorení záložky sa synchronizácia spustí na pozadí (najviac raz za 2 min). */
+  let calMonth = "", // zobrazený mesiac "2026-11"
+    calSyncAt = 0,
+    calSyncing = false;
+  const calBusy = new Set();
+  const CAL_MONTHS = [
+    "Január",
+    "Február",
+    "Marec",
+    "Apríl",
+    "Máj",
+    "Jún",
+    "Júl",
+    "August",
+    "September",
+    "Október",
+    "November",
+    "December",
+  ];
+  const CAL_DOW = ["Po", "Ut", "St", "Št", "Pi", "So", "Ne"];
+  const CAL_KINDS = {
+    ok: "Potvrdený termín – aj v Google kalendári",
+    warn: "Termín na potvrdenie – v Google kalendári nie je",
+    past: "Minulý alebo absolvovaný termín",
+  };
+  const pad2 = (n) => String(n).padStart(2, "0");
+  function calKind(d) {
+    if (d.appointment.slice(0, 10) < data.today || /absolvovaná/.test(d.status)) return "past";
+    return d.confirmed ? "ok" : "warn";
+  }
+  const calTime = (iso) => (iso.slice(11, 16) && iso.slice(11, 16) !== "00:00" ? iso.slice(11, 16) : "");
+  function calChip(d) {
+    const t = calTime(d.appointment);
+    return (
+      '<button type="button" class="calev k-' +
+      calKind(d) +
+      '" data-detail="' +
+      d.row +
+      '" title="' +
+      esc((t ? t + " " : "") + d.name + (d.city ? ", " + d.city : "") + " – " + d.status) +
+      '">' +
+      (t ? "<b>" + t + "</b> " : "") +
+      esc(d.name) +
+      "</button>"
+    );
+  }
+  function calShift(n) {
+    if (!n) calMonth = data.today.slice(0, 7);
+    else {
+      const [y, m] = calMonth.split("-").map(Number),
+        x = new Date(y, m - 1 + n, 1);
+      calMonth = x.getFullYear() + "-" + pad2(x.getMonth() + 1);
+    }
+    render();
+  }
+  // zariadenie k zmazanej udalosti: kľúč je „názov|obec“ malými písmenami (pri rovnakých názvoch „#2“…)
+  function calRemovedDevice(r) {
+    const k = r.key.replace(/#\d+$/, "");
+    return data.devices.find((d) => (d.name.trim() + "|" + d.city.trim()).toLocaleLowerCase("sk") === k) || null;
+  }
+  function calRemovedHtml() {
+    const list = data.calRemoved || [];
+    if (!list.length) return "";
+    const can = !data.readOnly && !window.APPKA;
+    return (
+      '<section class="panel calremoved"><div class="panelhead"><h2>Zmazané v Google kalendári</h2></div>' +
+      '<p class="muted">Tieto ukážky niekto zmazal v Google kalendári, v dashboarde termín stále platí. Kým nerozhodneš, do kalendára sa znova nepridajú.' +
+      (can ? "" : " Rozhodnúť sa dá v dashboarde na počítači.") +
+      '</p><div class="list">' +
+      list
+        .map((r, i) => {
+          const d = calRemovedDevice(r);
+          return (
+            '<div class="item"><div><strong>' +
+            (d ? nameButton(d) : esc(r.name)) +
+            "</strong><small>" +
+            esc([r.city, "termín " + format(r.start, true)].filter(Boolean).join(" · ")) +
+            "</small></div>" +
+            (can
+              ? '<div class="quick"><button type="button" class="btn" data-calcancel="' +
+                i +
+                '"' +
+                (calBusy.has(r.key) ? " disabled" : "") +
+                '>Zrušiť termín</button><button type="button" class="btn primary" data-calrestore="' +
+                i +
+                '"' +
+                (calBusy.has(r.key) ? " disabled" : "") +
+                ">Vrátiť do kalendára</button></div>"
+              : "") +
+            "</div>"
+          );
+        })
+        .join("") +
+      "</div></section>"
+    );
+  }
+  function calSyncLine() {
+    const el = $("calsync");
+    if (!el) return;
+    const can = !data.readOnly && !window.PREVIEW_DATA;
+    el.innerHTML =
+      "Potvrdené termíny sú v Google kalendári „Ukážky EnSafe“ a synchronizujú sa v oboch smeroch: posun ukážky v Google kalendári sa sem prenesie do pár minút, zmazanie čaká na tvoje rozhodnutie." +
+      (can
+        ? ' <button type="button" class="link" id="calsyncnow"' +
+          (calSyncing ? " disabled" : "") +
+          ">" +
+          (calSyncing ? "Synchronizujem…" : "Synchronizovať teraz") +
+          "</button>"
+        : "");
+  }
+  // Mesačná mriežka termínov. card = zariadenie, ak sa kreslí v karte zariadenia: ukážky ukazujú čas a obec (kvôli
+  // trase), ukážka tohto zariadenia je zvýraznená a klik na dnešný či budúci deň otvorí zápis telefonátu s termínom.
+  function calGrid(month, card) {
+    const [y, m] = month.split("-").map(Number),
+      lead = (new Date(y, m - 1, 1).getDay() + 6) % 7,
+      days = new Date(y, m, 0).getDate(),
+      pick = card && !data.readOnly && !window.PREVIEW_DATA;
+    const list = appointments().filter((d) => d.appointment.slice(0, 7) === month),
+      byDay = new Map();
+    list.forEach((d) => {
+      const k = d.appointment.slice(0, 10);
+      if (!byDay.has(k)) byDay.set(k, []);
+      byDay.get(k).push(d);
+    });
+    const cardChip = (d) => {
+      const t = calTime(d.appointment);
+      return (
+        '<span class="calev k-' +
+        calKind(d) +
+        (d.row === card.row ? " mine" : "") +
+        '" title="' +
+        esc((t ? t + " " : "") + d.name + (d.city ? ", " + d.city : "") + " – " + d.status) +
+        '">' +
+        (t ? "<b>" + t + "</b> " : "") +
+        (d.row === card.row ? "Toto" : esc(d.city || d.name)) +
+        "</span>"
+      );
+    };
+    let cells = CAL_DOW.map((x) => '<div class="caldow">' + x + "</div>").join("");
+    for (let i = 0; i < lead; i++) cells += '<div class="calday out" aria-hidden="true"></div>';
+    for (let day = 1; day <= days; day++) {
+      const iso = month + "-" + pad2(day),
+        evs = byDay.get(iso) || [];
+      cells +=
+        '<div class="calday' +
+        (iso === data.today ? " today" : "") +
+        ((lead + day - 1) % 7 > 4 ? " weekend" : "") +
+        '">' +
+        (pick && iso >= data.today
+          ? '<button type="button" class="calnum calpick" data-calpick="' +
+            iso +
+            '" title="Zapísať telefonát s termínom ukážky ' +
+            format(iso) +
+            '">' +
+            day +
+            "</button>"
+          : '<span class="calnum">' + day + "</span>") +
+        evs.map(card ? cardChip : calChip).join("") +
+        "</div>";
+    }
+    for (let i = (lead + days) % 7; i && i < 7; i++) cells += '<div class="calday out" aria-hidden="true"></div>';
+    return { cells, list, y, m };
+  }
+  // Kalendár v karte zariadenia (rozbaľuje sa tlačidlom „Kalendár ukážok“, stav sa pamätá aj pre ďalšie karty).
+  let calCardOpen = false,
+    calCardMonth = "";
+  try {
+    calCardOpen = localStorage.getItem("ensafe-calcard") === "1";
+  } catch (e) {}
+  function calCardToggle() {
+    calCardOpen = !calCardOpen;
+    try {
+      localStorage.setItem("ensafe-calcard", calCardOpen ? "1" : "0");
+    } catch (e) {}
+    if (detailRow) detail(detailRow);
+  }
+  function calCardHtml(d) {
+    if (!calCardOpen) return "";
+    if (!calCardMonth)
+      calCardMonth = (d.appointment && d.appointment >= data.today ? d.appointment : data.today).slice(0, 7);
+    const g = calGrid(calCardMonth, d);
+    return (
+      '<section class="calcard"><div class="calhead"><button type="button" class="btn" data-calcardnav="-1" aria-label="Predchádzajúci mesiac">‹</button><h3>' +
+      CAL_MONTHS[g.m - 1] +
+      " " +
+      g.y +
+      '</h3><button type="button" class="btn" data-calcardnav="1" aria-label="Nasledujúci mesiac">›</button>' +
+      (calCardMonth !== data.today.slice(0, 7)
+        ? '<button type="button" class="btn" data-calcardnav="0">Tento mesiac</button>'
+        : "") +
+      '<button type="button" class="btn" data-calcard="1">Skryť kalendár</button></div><div class="calgrid">' +
+      g.cells +
+      '</div><p class="muted">' +
+      (data.readOnly
+        ? "Ukážky všetkých zariadení: čas a obec."
+        : "Ukážky všetkých zariadení: čas a obec. Klikni na číslo dňa – otvorí sa zápis telefonátu s termínom ukážky v ten deň (čas uprav).") +
+      "</p></section>"
+    );
+  }
+  function calCardShift(n) {
+    if (!n) calCardMonth = data.today.slice(0, 7);
+    else {
+      const [y, m] = calCardMonth.split("-").map(Number),
+        x = new Date(y, m - 1 + n, 1);
+      calCardMonth = x.getFullYear() + "-" + pad2(x.getMonth() + 1);
+    }
+    if (detailRow) detail(detailRow);
+  }
+  // klik na deň v kalendári karty: zápis telefonátu s termínom ukážky (9:00) a stavom „Termín dohodnutý“
+  function calPick(iso) {
+    const row = detailRow;
+    if (!row || data.readOnly) return;
+    afterRefresh(() => {
+      openCall(row, { status: "Termín dohodnutý", appointment: iso + "T09:00" });
+      $("callmore").open = true;
+      f().result.value = f().result.value || "Dohodnutý termín ukážky";
+      f().appointment.focus();
+    });
+  }
+  function calView() {
+    if (!calMonth) calMonth = data.today.slice(0, 7);
+    const { cells, list, y, m } = calGrid(calMonth, null);
+    const agenda = list.length
+      ? '<div class="list">' +
+        list
+          .map((d) => {
+            const k = calKind(d),
+              wd = CAL_DOW[(new Date(d.appointment.slice(0, 10) + "T12:00").getDay() + 6) % 7];
+            return (
+              '<div class="item calrow"><div class="caldate k-' +
+              k +
+              '"><strong>' +
+              wd +
+              " " +
+              esc(format(d.appointment)) +
+              "</strong><small>" +
+              esc(calTime(d.appointment) || "celý deň") +
+              "</small></div><div class=\"grow\">" +
+              nameButton(d) +
+              "<small>" +
+              esc([d.city, d.person, d.phone].filter(Boolean).join(" · ")) +
+              "</small></div><div>" +
+              status(d) +
+              (k === "warn" ? "<small>v Google kalendári nie je</small>" : "") +
+              "</div></div>"
+            );
+          })
+          .join("") +
+        "</div>"
+      : empty("V tomto mesiaci nie sú žiadne termíny ukážok.");
+    return (
+      calRemovedHtml() +
+      '<section class="panel"><div class="calhead"><button type="button" class="btn" data-calnav="-1" aria-label="Predchádzajúci mesiac">‹</button><h2>' +
+      CAL_MONTHS[m - 1] +
+      " " +
+      y +
+      '</h2><button type="button" class="btn" data-calnav="1" aria-label="Nasledujúci mesiac">›</button>' +
+      (calMonth !== data.today.slice(0, 7) ? '<button type="button" class="btn" data-calnav="0">Tento mesiac</button>' : "") +
+      '</div><div class="calgrid">' +
+      cells +
+      '</div><div class="callegend">' +
+      Object.keys(CAL_KINDS)
+        .map((k) => '<span><i class="k-' + k + '"></i>' + CAL_KINDS[k] + "</span>")
+        .join("") +
+      '</div></section><section class="panel"><div class="panelhead"><h2>Termíny – ' +
+      CAL_MONTHS[m - 1].toLowerCase() +
+      " " +
+      y +
+      " (" +
+      list.length +
+      ")</h2></div>" +
+      agenda +
+      '</section><p class="muted calsync" id="calsync"></p>'
+    );
+  }
+  // Výsledok synchronizácie: ak sa niečo prenieslo z Google kalendára do tabuľky, dashboard sa obnoví.
+  function calSyncResult(r, manual) {
+    r = r || {};
+    const msg = [];
+    if (r.moved) msg.push("Posun ukážky z Google kalendára je zapísaný v dashboarde (" + r.moved + ").");
+    if (r.conflicts)
+      msg.push(
+        "Posun v Google kalendári sa neprevzal, termín sa medzičasom zmenil aj v dashboarde – platí dashboard (" +
+          r.conflicts +
+          ").",
+      );
+    if (r.removed) msg.push("Ukážka bola zmazaná v Google kalendári – rozhodni v záložke Kalendár (" + r.removed + ").");
+    if (msg.length) {
+      toast(msg.join(" "));
+      refresh(false, "obnova po synchronizácii kalendára");
+    } else if (manual)
+      toast(r.skipped ? "Práve prebieha iný zápis, skús to o chvíľu." : "Kalendár je zosynchronizovaný, bez zmien.");
+  }
+  function calSyncNow(manual) {
+    if (calSyncing || !data || data.readOnly || window.PREVIEW_DATA) return;
+    calSyncing = true;
+    calSyncAt = Date.now();
+    calSyncLine();
+    api("syncCalendar")
+      .then((r) => calSyncResult(r, manual))
+      .catch((e) => {
+        if (manual) toast("Synchronizácia s Google kalendárom zlyhala: " + ((e && e.message) || e));
+      })
+      .finally(() => {
+        calSyncing = false;
+        calSyncLine();
+      });
+  }
+  async function calResolve(i, action, b) {
+    const r = (data.calRemoved || [])[i];
+    if (!r || calBusy.has(r.key) || data.readOnly || window.APPKA) return;
+    if (
+      action === "cancel" &&
+      !confirm(
+        "Zrušiť termín ukážky " +
+          format(r.start, true) +
+          " – " +
+          r.name +
+          "? Stav sa zmení na „Dohodnúť stretnutie“ a zápis pribudne do poznámky.",
+      )
+    )
+      return;
+    calBusy.add(r.key);
+    b.disabled = true;
+    try {
+      const res = await api("calRemovedResolve", { key: r.key, start: r.start, action });
+      toast(
+        action === "cancel"
+          ? res && res.cancelled
+            ? "Termín je zrušený, stav: Dohodnúť stretnutie."
+            : "Termín sa v tabuľke medzičasom zmenil – nič sa nezrušilo."
+          : res && res.sync && res.sync.ok === false
+            ? "Ukážka sa vráti do kalendára pri najbližšej synchronizácii (do 15 minút)."
+            : "Ukážka je späť v Google kalendári.",
+      );
+      refresh(true, "obnova po rozhodnutí o termíne");
+    } catch (e) {
+      toast("Nepodarilo sa uložiť: " + ((e && e.message) || e));
+      b.disabled = false;
+    } finally {
+      calBusy.delete(r.key);
+    }
+  }
   const GROUPS = {
+    cal: ["calendar"],
     mail: ["mailing"],
     overview: ["overview"],
     work: ["tasks", "mailtasks", "appointments", "shipments"],
@@ -1460,6 +1809,7 @@
       history: "História",
       calls: "História",
       map: "Mapa zariadení",
+      calendar: "Kalendár ukážok",
     };
     const g = groupOf(view);
     if (g !== "overview") LAST[g] = view;
@@ -1476,6 +1826,8 @@
           ? mailingView()
           : view === "map"
             ? '<div id="mapslot"></div>'
+            : view === "calendar"
+              ? calView()
             : view === "shipments"
               ? subtabs() + shipView()
               : subtabs() + (view === "companies" ? companySummary() : "") + filters();
@@ -1488,12 +1840,16 @@
       });
     }
     if (view === "map") mapMount();
-    else if (view !== "overview" && view !== "mailing" && view !== "shipments") results();
+    else if (view === "calendar") {
+      calSyncLine();
+      if (Date.now() - calSyncAt > 120000) calSyncNow(false); // zachytí posuny z Google kalendára hneď pri otvorení
+    } else if (view !== "overview" && view !== "mailing" && view !== "shipments") results();
     if (same) window.scrollTo(0, sy);
   }
   function detail(row) {
     const d = byRow.get(+row);
     if (!d) return;
+    if (detailRow !== +row) calCardMonth = ""; // iné zariadenie: kalendár v karte začne mesiacom jeho termínu
     detailRow = +row;
     $("detailtitle").textContent = d.name;
     const h = data.calls
@@ -1513,6 +1869,7 @@
     const typed = contactEdit && $("contactform") ? contactValues() : null; // obnova dashboardu nezahodí rozpísané údaje
     $("detailcontent").innerHTML =
       (d.flags.length ? '<div class="banner">' + esc(d.flags.join(" · ")) + "</div>" : "") +
+      calCardHtml(d) +
       '<div class="detailgrid"><div class="detailbox"><h3>Kontakt</h3>' +
       (contactEdit
         ? contactForm(typed || d)
@@ -1541,6 +1898,7 @@
       esc(d.lastContact ? format(d.lastContact) : "Neuvedený") +
       "</p><p>Stretnutie: " +
       esc(d.appointment ? format(d.appointment, true) : d.appointmentRaw || "Neuvedené") +
+      (calCardOpen ? "" : ' <button type="button" class="link" data-calcard="1">Kalendár ukážok</button>') +
       "</p><p>" +
       pill(d.order ? "Objednávka potvrdená" : "Objednávka zatiaľ nepotvrdená", d.order ? "success" : "") +
       "</p>" +
@@ -1559,7 +1917,9 @@
       esc(data.sourceUrl + "&range=A" + d.row + ":R" + d.row) +
       '">Otvoriť v tabuľke</a>' +
       (d.lat != null ? '<button class="btn" data-showmap="' + d.row + '">Ukázať na mape</button>' : "") +
-      '<button class="btn" data-visit="' +
+      '<button type="button" class="btn" data-calcard="1">' +
+      (calCardOpen ? "Skryť kalendár" : "Kalendár ukážok") +
+      '</button><button class="btn" data-visit="' +
       d.row +
       '">Zapísať návštevu</button><button class="btn primary" data-call="' +
       d.row +
@@ -1668,6 +2028,17 @@
       render();
     }
     if (b.id === "mapgeocode") mapGeocodeRun();
+    if (ds.calnav) calShift(+ds.calnav);
+    if (ds.calcard) {
+      calCardToggle();
+      const el = $("detail").querySelector(".calcard");
+      if (el) el.scrollIntoView({ block: "nearest" });
+    }
+    if (ds.calcardnav) calCardShift(+ds.calcardnav);
+    if (ds.calpick) calPick(ds.calpick);
+    if (b.id === "calsyncnow") calSyncNow(true);
+    if (ds.calcancel) calResolve(+ds.calcancel, "cancel", b);
+    if (ds.calrestore) calResolve(+ds.calrestore, "restore", b);
     if (ds.shipset) shipSet(ds.shipset, ds.status, ds.all === "1", b);
     if (ds.shipassign) afterRefresh(() => shipDialog("assign", ds.shipassign));
     if (ds.shipadd) afterRefresh(() => shipDialog("add"));

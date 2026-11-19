@@ -822,6 +822,251 @@
     border-radius: 4px;
   }
 
+  /* ---------- kalendár ukážok ---------- */
+  /* zelená EnSafe (#119039, rovnaká ako kalendár „Ukážky EnSafe“) = potvrdené, žltá = na potvrdenie, sivá = minulé */
+  .calhead {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .calhead h2 {
+    margin: 0 8px;
+    min-width: 150px;
+    text-align: center;
+  }
+  .calgrid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    border-top: 1px solid var(--line);
+    border-left: 1px solid var(--line);
+  }
+  .caldow {
+    padding: 6px 8px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .calday {
+    min-height: 96px;
+    padding: 4px;
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+  .calday.weekend {
+    background: #fafbfc;
+  }
+  .calday.out {
+    background: var(--surface);
+  }
+  .calnum {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    padding: 0 4px;
+  }
+  .calday.today .calnum {
+    background: var(--blue);
+    color: #fff;
+    border-radius: 999px;
+    align-self: flex-start;
+    padding: 0 7px;
+  }
+  .calev {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    border-left: 3px solid;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 12px;
+    line-height: 1.35;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .calev.k-ok {
+    background: #e2f3e7;
+    border-color: #119039;
+    color: #0b5e25;
+  }
+  .calev.k-warn {
+    background: #fff6db;
+    border-color: #d9a400;
+    color: #7a5b00;
+  }
+  .calev.k-past {
+    background: var(--surface);
+    border-color: #9aa3ae;
+    color: var(--muted);
+  }
+  .calev:hover {
+    filter: brightness(0.96);
+  }
+  .callegend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .callegend i {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    margin-right: 6px;
+    vertical-align: -1px;
+  }
+  .callegend i.k-ok,
+  .caldate.k-ok {
+    background: #119039;
+  }
+  .callegend i.k-warn,
+  .caldate.k-warn {
+    background: #d9a400;
+  }
+  .callegend i.k-past,
+  .caldate.k-past {
+    background: #9aa3ae;
+  }
+  .calrow {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+  .calrow .grow {
+    flex: 1;
+    min-width: 0;
+  }
+  .calrow small {
+    display: block;
+  }
+  .caldate {
+    flex: 0 0 auto;
+    min-width: 108px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    color: #fff;
+    line-height: 1.3;
+  }
+  .caldate small {
+    color: inherit;
+    opacity: 0.9;
+  }
+  .calremoved {
+    border-color: var(--accent);
+  }
+  /* kalendár v karte zariadenia */
+  .calcard {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 12px;
+    margin-bottom: 16px;
+  }
+  .calcard .calhead {
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .calcard .calhead h3 {
+    margin: 0 4px;
+    min-width: 130px;
+    text-align: center;
+  }
+  .calcard .calday {
+    min-height: 64px;
+  }
+  .calcard .muted {
+    margin: 8px 0 0;
+    font-size: 13px;
+  }
+  .calpick {
+    border: 0;
+    background: none;
+    text-align: left;
+    align-self: flex-start;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .calpick:hover {
+    background: var(--tone);
+    color: var(--blue);
+  }
+  .calev.mine {
+    outline: 2px solid var(--blue);
+    outline-offset: -1px;
+    font-weight: 700;
+  }
+  .calremoved .item {
+    display: flex;
+    gap: 16px;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .calsync {
+    font-size: 13px;
+  }
+  @media (max-width: 720px) {
+    /* v telefóne sú v mesačnej mriežke len farebné značky; podrobnosti sú v zozname termínov pod ňou */
+    .calday {
+      min-height: 52px;
+      padding: 2px;
+      flex-flow: row wrap;
+      align-content: flex-start;
+      gap: 2px;
+    }
+    .calnum {
+      width: 100%;
+      padding: 0 2px;
+    }
+    .calday.today .calnum {
+      width: auto;
+    }
+    .calev {
+      width: 10px;
+      height: 10px;
+      padding: 0;
+      border: 0;
+      border-radius: 999px;
+      font-size: 0;
+    }
+    .calev.k-ok {
+      background: #119039;
+    }
+    .calev.k-warn {
+      background: #d9a400;
+    }
+    .calev.k-past {
+      background: #9aa3ae;
+    }
+    .caldow {
+      padding: 4px 2px;
+      text-align: center;
+    }
+    .calhead h2 {
+      min-width: 0;
+      flex: 1;
+      font-size: 18px;
+    }
+    .calrow {
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .caldate {
+      min-width: 92px;
+    }
+  }
+
   /* ---------- záložky ---------- */
   .tabs {
     display: flex;
