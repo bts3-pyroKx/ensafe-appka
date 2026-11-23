@@ -54,6 +54,8 @@
     "Dohodnuté stretnutie": ["#ede8f8", "#5a35a0", "#7b5bc4"],
     "Ukážka absolvovaná": ["#e3f3ea", "#1b6b45", "#2e9a62"],
     "Návšteva absolvovaná": ["#eef6df", "#4a6614", "#8db43c"],
+    "Čaká na školenie": ["#e0f2ee", "#0d5c4f", "#2a9d8a"],
+    "Školenie absolvované": ["#d9efe0", "#11602f", "#119039"],
     Uzavreté: ["#dcefe5", "#0e4d36", "#16704c"],
     "Nemá záujem": ["#fcede8", "#b3300d", "#da3c11"],
   };
@@ -957,6 +959,7 @@
     sdf().action.value = "Školenie – ako používať produkty EnSafe";
     sdf().deadline.value = "";
     sdf().deadline.min = data.today;
+    sdf().waitTraining.checked = true;
     $("shipdonehint").textContent = nextHint(d);
     $("shipdoneerror").hidden = true;
     $("saveshipdone").disabled = !!window.PREVIEW_DATA;
@@ -978,7 +981,13 @@
     const s = shipDoneRow;
     if (!s || statusSaving) return;
     const arg = { row: s.row, name: s.name, version: s.version, status: SHIP.done, all: false };
-    if (sdf().plan.checked) arg.plan = { row: s.dev, action: sdf().action.value, deadline: sdf().deadline.value };
+    if (sdf().plan.checked)
+      arg.plan = {
+        row: s.dev,
+        action: sdf().action.value,
+        deadline: sdf().deadline.value,
+        waitTraining: sdf().waitTraining.checked,
+      };
     const ok = await shipSave(
       "shipSetStatus",
       arg,
@@ -1603,7 +1612,7 @@
     if (view === "history")
       s +=
         '<label class="field">Typ udalosti<select id="activitytype">' +
-        options(["Samostatná ukážka", "Spoločná ukážka", "Návšteva"], "Všetky udalosti") +
+        options(["Samostatná ukážka", "Spoločná ukážka", "Návšteva", "Školenie"], "Všetky udalosti") +
         '</select></label><label class="field">Osobná návšteva<select id="visited">' +
         options(["Áno", "Nie"], "Všetky pracoviská") +
         "</select></label>";
@@ -1768,7 +1777,7 @@
           "</td><td>" +
           (d ? nameButton(d) : esc(a.name)) +
           "</td><td>" +
-          pill(a.type, a.type === "Návšteva" ? "warn" : "success") +
+          pill(a.type, a.type === "Návšteva" ? "warn" : a.type === "Školenie" ? "" : "success") +
           (a.type === "Spoločná ukážka" ? "<small>Jedna spoločná udalosť</small>" : "") +
           "</td><td>" +
           pill(a.visited ? "Áno" : "Zastúpené / nepotvrdené", a.visited ? "success" : "") +
@@ -2227,8 +2236,10 @@
             "</option>",
         )
         .join("");
-    vf().type.value = "Samostatná ukážka";
+    vf().type.value = visitSelected0(row) === TRAINING_WAIT ? "Školenie" : "Samostatná ukážka";
     vf().type.disabled = false;
+    vf().moreTraining.checked = false;
+    visitTypeSync();
     vf().date.value = data.today;
     vf().date.max = data.today;
     vf().date.disabled = false;
@@ -2253,6 +2264,23 @@
     visitNextHint();
     visitPending = crypto.randomUUID();
   };
+  const TRAINING_WAIT = "Čaká na školenie";
+  // stav zariadenia, pre ktoré sa okno otvára (zariadenie čakajúce na školenie dostane predvolene typ Školenie)
+  function visitSelected0(row) {
+    const d = row ? data.devices.find((d) => d.row === +row) : null;
+    return d ? d.status : "";
+  }
+  // pri školení sa ponúkne „Bude ďalšie školenie“ (stav ostane Čaká na školenie)
+  function visitTypeSync() {
+    const t = vf().type.value === "Školenie";
+    $("moretraining").hidden = !t;
+    if (!t) vf().moreTraining.checked = false;
+  }
+  vf().type.addEventListener("change", visitTypeSync);
+  vf().moreTraining.addEventListener("change", () => {
+    if (vf().moreTraining.checked && !vf().nextAction.value.trim())
+      vf().nextAction.value = "Ďalšie školenie zamestnancov";
+  });
   // doterajší ďalší krok zariadenia – nový ho nahradí
   function nextHint(d) {
     return d && (d.action || d.deadline)
@@ -2278,6 +2306,7 @@
       vf().date.value = data.today;
       vf().type.value = "Samostatná ukážka";
     }
+    visitTypeSync();
   };
   $("newvisit").onclick = () => afterRefresh(() => openVisit());
   $("visit").addEventListener("cancel", (e) => {
@@ -2296,6 +2325,7 @@
       date: vf().date.value,
       note: vf().note.value,
       visited: vf().visited.checked,
+      moreTraining: vf().moreTraining.checked,
     };
     if (vf().nextAction.value.trim() || vf().nextDeadline.value)
       p.plan = { action: vf().nextAction.value, deadline: vf().nextDeadline.value };

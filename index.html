@@ -36,9 +36,10 @@
 <dialog id="visit"><div class="panelhead"><h2>Zápis návštevy alebo ukážky</h2><button class="btn" data-close="visit">Zavrieť</button></div><div class="dialogbody"><form id="visitform"><div class="formgrid">
 <label class="field full">Pracovisko<select name="device" required></select></label>
 <label class="field full">Udalosť<select name="eventId"><option value="">Nová udalosť</option></select></label>
-<label class="field">Typ udalosti<select name="type"><option>Samostatná ukážka</option><option>Spoločná ukážka</option><option>Návšteva</option></select></label>
+<label class="field">Typ udalosti<select name="type"><option>Samostatná ukážka</option><option>Spoločná ukážka</option><option>Návšteva</option><option>Školenie</option></select></label>
 <label class="field">Dátum návštevy / ukážky (ak ho poznáš)<input name="date" type="date"></label>
 <label class="checkbox full"><input name="visited" type="checkbox" checked>Bol som osobne na tomto pracovisku</label>
+<label class="checkbox full" id="moretraining" hidden><input name="moreTraining" type="checkbox">Bude ďalšie školenie (napr. pre zamestnancov, ktorí neprišli) – stav ostane „Čaká na školenie“</label>
 <label class="field full">Poznámka<textarea name="note" maxlength="10000" placeholder="Priebeh, účastníci a záujem o produkty"></textarea></label>
 <label class="field full">Ďalší krok (nepovinné)<textarea name="nextAction" maxlength="3000" rows="2" style="min-height:60px" placeholder="Napr. Zavolať, ako sa rozhodli"></textarea><small id="visitnexthint" class="muted"></small></label>
 <label class="field">Termín ďalšieho kroku<input name="nextDeadline" type="date"></label>
@@ -64,6 +65,7 @@
 <label class="field full">Ďalší krok<textarea name="action" maxlength="3000" rows="2" style="min-height:60px"></textarea><small id="shipdonehint" class="muted"></small></label>
 <label class="field">Termín<input name="deadline" type="date"></label>
 <div class="field"><span>Rýchly výber termínu</span><div class="quick"><button type="button" class="btn" data-splus="3">+3 dni</button><button type="button" class="btn" data-splus="7">+7 dní</button><button type="button" class="btn" data-splus="14">+14 dní</button></div></div>
+<label class="checkbox full"><input name="waitTraining" type="checkbox" checked>Nastaviť stav „Čaká na školenie“</label>
 </div><p id="shipdoneerror" class="error" hidden role="alert"></p><div class="formfoot"><button type="button" class="btn" data-close="shipdone">Zrušiť</button><button type="submit" class="btn primary" id="saveshipdone">Uložiť doručenie</button></div></form></div></dialog>
 <dialog id="devicesdlg"><div class="panelhead"><h2>Appka a zariadenia</h2><button class="btn" data-close="devicesdlg">Zavrieť</button></div><div class="dialogbody">
 <p class="muted">Appka v telefóne alebo počítači funguje aj bez signálu. Každé zariadenie sa pripája zvlášť a dá sa kedykoľvek zrušiť.</p>
