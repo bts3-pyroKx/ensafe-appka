@@ -4743,7 +4743,7 @@
     ["Školenie OPP – vedúci zamestnanci", 24],
     ["Školenie OPP – osoby v mimopracovnom čase", 12],
     ["Odborná príprava protipožiarnej hliadky", 12],
-    ["Oboznamovanie BOZP", 24],
+    ["Oboznamovanie BOZP", 36],
     ["Aktualizačná príprava – motorové vozíky (VZV)", 60],
   ];
   let klTrainClient = "",
@@ -4871,12 +4871,10 @@
   const KL_TRAIN_FORM =
     '<div class="panelhead"><h2>Zapísať školenie</h2><button class="btn" data-close="kltrain">Zavrieť</button></div><div class="dialogbody"><form id="kltrainform" novalidate>' +
     '<p id="kltrainname" style="margin-top:0;font-weight:700"></p>' +
-    '<div class="field" id="kltraintplbox"><span>Školenie</span><div class="quick" id="kltraintpl"></div></div>' +
-    '<label class="field">Názov školenia<input name="type" maxlength="150" required></label>' +
-    '<div class="formgrid" style="margin-top:12px">' +
-    '<label class="field">Dátum školenia<input name="date" type="date" required></label>' +
-    '<label class="field">Platnosť (mesiacov)<input name="months" type="number" min="1" max="120" step="1" inputmode="numeric" placeholder="prázdne = bez opakovania"></label>' +
-    "</div>" +
+    '<div class="field" id="kltraintplbox"><span>Školenia – vyber všetky, ktoré boli (napr. BOZP aj OPP)</span><div class="quick kltraintpl" id="kltraintpl"></div></div>' +
+    '<div id="kltrainkinds"></div>' +
+    '<div class="quick"><button type="button" class="btn" id="kltrainadd">+ Iné školenie</button></div>' +
+    '<label class="field" style="margin-top:12px">Dátum školenia<input name="date" type="date" required></label>' +
     '<h3 class="klh">Kto bol na školení</h3><div id="kltrainstaff"></div>' +
     '<label class="field" style="margin-top:12px">Noví zamestnanci – každý na nový riadok, funkcia za pomlčkou<textarea name="people" rows="3" placeholder="Meno Priezvisko – funkcia&#10;Meno Priezvisko"></textarea></label>' +
     '<label class="field">Poznámka<input name="note" maxlength="500"></label>' +
@@ -4892,6 +4890,48 @@
         const m = /^(.+?)\s+[–-]\s+(.+)$/.exec(l);
         return m ? { name: m[1].trim(), role: m[2].trim() } : { name: l, role: "" };
       });
+  // vybrané školenia v okne: riadok = názov + lehota; šablóny sa zapínajú a vypínajú (viac naraz)
+  function klTrainKindAdd(type, months) {
+    const d = document.createElement("div");
+    d.className = "kltrainkind";
+    d.innerHTML =
+      '<label class="field">Školenie<input class="kltype" maxlength="150"></label>' +
+      '<label class="field">Platnosť (mesiacov)<input class="klmonths" type="number" min="1" max="120" step="1" inputmode="numeric" placeholder="bez opakovania"></label>' +
+      '<button type="button" class="btn" data-kltrainrm="1" aria-label="Odobrať školenie" title="Odobrať">×</button>';
+    d.querySelector(".kltype").value = type;
+    d.querySelector(".klmonths").value = months;
+    $("kltrainkinds").appendChild(d);
+    klTrainSync();
+    return d;
+  }
+  const klTrainRows = () => [...$("kltrainkinds").querySelectorAll(".kltrainkind")];
+  function klTrainSync() {
+    const names = klTrainRows().map((r) => normalize(r.querySelector(".kltype").value.trim()));
+    $("kltraintpl")
+      .querySelectorAll("[data-kltraintpl]")
+      .forEach((b) => {
+        const on = names.includes(normalize(KL_TRAIN_TPL[+b.dataset.kltraintpl][0]));
+        b.classList.toggle("on", on);
+        b.setAttribute("aria-pressed", on);
+      });
+  }
+  function klTrainTpl(i) {
+    const t = KL_TRAIN_TPL[i];
+    if (!t) return;
+    const rows = klTrainRows(),
+      has = rows.find((r) => normalize(r.querySelector(".kltype").value.trim()) === normalize(t[0]));
+    if (has) {
+      has.remove();
+      if (!klTrainRows().length) klTrainKindAdd("", "");
+    } else {
+      const empty = rows.find((r) => !r.querySelector(".kltype").value.trim());
+      if (empty) {
+        empty.querySelector(".kltype").value = t[0];
+        empty.querySelector(".klmonths").value = t[1];
+      } else klTrainKindAdd(t[0], t[1]);
+    }
+    klTrainSync();
+  }
   function klTrainOpen(clientId, pre) {
     const c = klById(clientId);
     if (!c || !klCanWrite()) return;
@@ -4899,13 +4939,15 @@
     klDialog("kltrain", KL_TRAIN_FORM);
     const e = $("kltrainform").elements,
       active = klStaff(c).filter((x) => !x.left),
-      tpl = pre && pre.tpl != null ? KL_TRAIN_TPL[pre.tpl] : null;
+      tpls = [...new Set((pre && pre.tpls) || [])];
     $("kltrainname").textContent = c.name;
     $("kltraintpl").innerHTML = KL_TRAIN_TPL.map(
-      (t, i) => '<button type="button" class="btn" data-kltraintpl="' + i + '">' + esc(t[0]) + "</button>",
+      (t, i) =>
+        '<button type="button" class="btn" aria-pressed="false" data-kltraintpl="' + i + '">' + esc(t[0]) + "</button>",
     ).join("");
-    e.type.value = tpl ? tpl[0] : "";
-    e.months.value = tpl ? tpl[1] : "";
+    $("kltrainkinds").innerHTML = "";
+    klTrainKindAdd("", "");
+    tpls.forEach(klTrainTpl);
     e.date.value = (pre && pre.date) || data.today;
     e.people.value = "";
     e.note.value = "";
@@ -4938,15 +4980,19 @@
         $("kltrainerror").textContent = s;
         $("kltrainerror").hidden = false;
       },
-      months = e.months.value.trim(),
+      kinds = klTrainRows()
+        .map((r) => ({ type: r.querySelector(".kltype").value.trim(), months: r.querySelector(".klmonths").value.trim() }))
+        .filter((k) => k.type || k.months),
       ids = [...$("kltrainstaff").querySelectorAll(".kltrainemp:checked")].map((i) => i.value),
       people = klPeopleOf(e.people.value);
     if (!c) return;
-    if (!e.type.value.trim()) return err("Vyber alebo napíš školenie.");
+    if (!kinds.length) return err("Vyber alebo napíš školenie.");
+    if (kinds.some((k) => !k.type)) return err("Doplň názov školenia (alebo riadok odober krížikom).");
+    if (kinds.some((k) => k.months && !(/^\d+$/.test(k.months) && +k.months >= 1 && +k.months <= 120)))
+      return err("Platnosť musí byť 1 až 120 mesiacov.");
+    if (new Set(kinds.map((k) => normalize(k.type))).size < kinds.length) return err("Školenie je v zozname dvakrát.");
     if (!e.date.value) return err("Doplň dátum školenia.");
     if (e.date.value > data.today) return err("Dátum školenia nemôže byť v budúcnosti.");
-    if (months && !(/^\d+$/.test(months) && +months >= 1 && +months <= 120))
-      return err("Platnosť musí byť 1 až 120 mesiacov.");
     if (!ids.length && !people.length) return err("Zaškrtni zamestnancov alebo dopíš nových.");
     const known = new Map(klStaff(c).map((x) => [normalize(x.person), x])),
       twice = people.find((p) => known.has(normalize(p.name)));
@@ -4967,8 +5013,7 @@
         requestId: $("kltrainform").dataset.rid,
         client: c.id,
         name: c.name, // len pre frontu appky (popis zápisu)
-        type: e.type.value.trim(),
-        months: months ? +months : "",
+        types: kinds.map((k) => ({ type: k.type, months: k.months ? +k.months : "" })),
         date: e.date.value,
         employees: ids,
         newPeople: people,
@@ -4976,7 +5021,12 @@
       });
       $("kltrain").close();
       if (!(r && r.queued))
-        toast("Školenie zapísané: " + (ids.length + people.length) + (r && r.duplicate ? " (už bolo uložené skôr)" : "") + ".");
+        toast(
+          (kinds.length > 1 ? "Školenia zapísané (" + kinds.length + "): " : "Školenie zapísané: ") +
+            (ids.length + people.length) +
+            " zam." +
+            (r && r.duplicate ? " (už bolo uložené skôr)" : ""),
+        );
       await applySaved(r);
     } catch (e2) {
       err("Uloženie zlyhalo: " + ((e2 && e2.message) || e2));
@@ -5708,7 +5758,7 @@
         afterRefresh(() =>
           klTrainOpen(id, {
             date: v.date,
-            tpl: school.length === 1 ? (school[0] === "Školenie OPP" ? 0 : 4) : null,
+            tpls: school.map((t) => (t === "Školenie OPP" ? 0 : 4)),
           }),
         );
       }
@@ -5821,6 +5871,14 @@
                 ) +
                 "</p>" +
                 (x.changes.length ? '<p class="muted">Zmenené: ' + esc(x.changes.join(", ")) + "</p>" : "") +
+                (x.skipped || [])
+                  .map(
+                    (s) =>
+                      '<p class="muted">Vynechaná ako hotová: ' +
+                      esc(format(s.date) + " " + s.caption + (s.why ? " – " + s.why : "")) +
+                      "</p>",
+                  )
+                  .join("") +
                 "</div></label>",
             )
             .join("") +
@@ -5947,13 +6005,12 @@
     if (b.id === "klplacecancel") klPlaceCancel(b);
     if (ds.klemp) afterRefresh(() => klEmpOpen(ds.klemp));
     if (ds.kltrainzrus) klTrainCancel(ds.kltrainzrus, b);
-    if (ds.kltraintpl) {
-      const t = KL_TRAIN_TPL[+ds.kltraintpl],
-        e3 = $("kltrainform").elements;
-      if (t) {
-        e3.type.value = t[0];
-        e3.months.value = t[1];
-      }
+    if (ds.kltraintpl) klTrainTpl(+ds.kltraintpl);
+    if (b.id === "kltrainadd") klTrainKindAdd("", "").querySelector(".kltype").focus();
+    if (ds.kltrainrm) {
+      b.closest(".kltrainkind").remove();
+      if (!klTrainRows().length) klTrainKindAdd("", "");
+      klTrainSync();
     }
     if (b.id === "kldutycancel" && klDutyRow) klDutySet(klDutyRow, "cancel", b);
     if (ds.kltpl) {
@@ -5970,6 +6027,8 @@
     if (e.target.id === "klsearch") {
       klQuery = e.target.value;
       if ($("kllist")) $("kllist").innerHTML = klListHtml();
+    } else if (e.target.classList && e.target.classList.contains("kltype")) {
+      klTrainSync();
     } else if (e.target.closest && e.target.closest("#klplanform")) {
       klPlanDay();
     } else if (e.target.closest && e.target.closest("#klform")) {

@@ -1,7 +1,7 @@
 /* Service worker appky: kostra (stránka, skript, štýly, ikony) je uložená v zariadení, takže sa appka otvorí aj
-   bez signálu. Dáta dashboardu tu nie sú – tie rieši appka sama. c9fe069b6d dopĺňa tools/build-pwa.js; nová zostava
+   bez signálu. Dáta dashboardu tu nie sú – tie rieši appka sama. a21c2c348e dopĺňa tools/build-pwa.js; nová zostava
    = nový súbor = prehliadač ponúkne aktualizáciu. */
-const BUILD = "c9fe069b6d";
+const BUILD = "a21c2c348e";
 const CACHE = "ensafe-kostra-" + BUILD;
 const FONTS = "ensafe-pisma";
 const SHELL = ["./", "config.js", "app.js", "appka.js", "fronta.js", "leaflet.js", "leaflet.css", "styles.css", "manifest.webmanifest", "icon-192.png", "icon-512.png"];

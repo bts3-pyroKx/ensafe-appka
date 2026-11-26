@@ -112,7 +112,7 @@
         "Školenie – " +
         n +
         ": " +
-        (a.type || "") +
+        (a.types ? a.types.map((t) => t.type).join(" + ") : a.type || "") +
         " (" +
         ((a.employees || []).length + (a.newPeople || []).length) +
         " zam.)"

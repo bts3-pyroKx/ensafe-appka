@@ -1202,6 +1202,32 @@
   .kllist .kllate {
     font-weight: 600;
   }
+  .kltraintpl .btn.on {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: #fff;
+  }
+  .kltrainkind {
+    display: grid;
+    grid-template-columns: 1fr 150px auto;
+    gap: 8px;
+    align-items: end;
+    margin: 8px 0;
+  }
+  .kltrainkind .field {
+    margin: 0;
+  }
+  .kltrainkind > .btn {
+    min-width: 40px;
+  }
+  @media (max-width: 520px) {
+    .kltrainkind {
+      grid-template-columns: 1fr auto;
+    }
+    .kltrainkind .field:first-child {
+      grid-column: 1/-1;
+    }
+  }
   .kltrainstaff {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
