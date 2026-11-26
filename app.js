@@ -1286,7 +1286,8 @@
   }
   // Mesačná mriežka termínov. card = zariadenie, ak sa kreslí v karte zariadenia: ukážky ukazujú čas a obec (kvôli
   // trase), ukážka tohto zariadenia je zvýraznená a klik na dnešný či budúci deň otvorí zápis telefonátu s termínom.
-  function calGrid(month, card) {
+  // near = vzdialenosti ukážok od zariadenia karty (Map riadok → km) alebo null, ak zariadenie nemá polohu
+  function calGrid(month, card, near) {
     const [y, m] = month.split("-").map(Number),
       lead = (new Date(y, m - 1, 1).getDay() + 6) % 7,
       days = new Date(y, m, 0).getDate(),
@@ -1299,16 +1300,27 @@
       byDay.get(k).push(d);
     });
     const cardChip = (d) => {
-      const t = calTime(d.appointment);
+      const t = calTime(d.appointment),
+        mine = d.row === card.row,
+        km = near && !mine ? near.get(d.row) : undefined,
+        far = near && !mine && km === undefined; // mimo okruhu alebo bez polohy – stlmené
       return (
         '<span class="calev k-' +
         calKind(d) +
-        (d.row === card.row ? " mine" : "") +
+        (mine ? " mine" : "") +
+        (far ? " far" : "") +
         '" title="' +
-        esc((t ? t + " " : "") + d.name + (d.city ? ", " + d.city : "") + " – " + d.status) +
+        esc(
+          (t ? t + " " : "") +
+            d.name +
+            (d.city ? ", " + d.city : "") +
+            (km !== undefined ? " (" + kmText(km) + ")" : "") +
+            " – " +
+            d.status,
+        ) +
         '">' +
         (t ? "<b>" + t + "</b> " : "") +
-        (d.row === card.row ? "Toto" : esc(d.city || d.name)) +
+        (mine ? "Toto" : esc(d.city || d.name) + (km !== undefined ? " · " + esc(kmText(km)) : "")) +
         "</span>"
       );
     };
@@ -1338,11 +1350,52 @@
     return { cells, list, y, m };
   }
   // Kalendár v karte zariadenia (rozbaľuje sa tlačidlom „Kalendár ukážok“, stav sa pamätá aj pre ďalšie karty).
+  const CAL_RADII = [15, 30, 50];
   let calCardOpen = false,
-    calCardMonth = "";
+    calCardMonth = "",
+    calCardKm = 30;
   try {
     calCardOpen = localStorage.getItem("ensafe-calcard") === "1";
+    const km = +localStorage.getItem("ensafe-calkm");
+    if (CAL_RADII.includes(km)) calCardKm = km;
   } catch (e) {}
+  function calCardRadius(km) {
+    calCardKm = km;
+    try {
+      localStorage.setItem("ensafe-calkm", String(km));
+    } catch (e) {}
+    calCardMonth = "";
+    if (detailRow) detail(detailRow);
+  }
+  // ukážky iných zariadení v okruhu (vzdušnou čiarou); null = zariadenie karty nemá polohu
+  function calNear(d) {
+    if (d.lat == null) return null;
+    const m = new Map();
+    appointments().forEach((x) => {
+      if (x.row === d.row || x.lat == null) return;
+      const km = kmBetween(d, x);
+      if (km <= calCardKm) m.set(x.row, km);
+    });
+    return m;
+  }
+  // Návrh času ukážky v deň ukážky v okolí: po nej (dĺžka ukážky + odhad cesty), a keď by sa nestihla do 17:00,
+  // tak pred ňou. Cesta = vzdušná vzdialenosť × 1,3 pri 60 km/h, zaokrúhlené nahor na 15 min. Ukážka bez času → 9:00.
+  const CAL_LEN_MIN = 120; // rovnako ako CAL.durationMin v Kalendar.js
+  function calSuggest(x, km) {
+    const t = calTime(x.appointment);
+    if (!t) return { time: "09:00", travel: 0, after: true };
+    const travel = Math.max(15, Math.ceil((km * 1.3) / 15) * 15),
+      start = +t.slice(0, 2) * 60 + +t.slice(3, 5),
+      after = start + CAL_LEN_MIN + travel,
+      before = start - travel - CAL_LEN_MIN,
+      useAfter = after + CAL_LEN_MIN <= 17 * 60 || before < 7 * 60,
+      m = useAfter ? Math.ceil(after / 15) * 15 : Math.floor(before / 15) * 15;
+    return { time: pad2(Math.floor(m / 60)) + ":" + pad2(m % 60), travel, after: useAfter };
+  }
+  // najbližšie budúce ukážky v okruhu (okrem minulých a absolvovaných)
+  function calNearNext(near) {
+    return near ? appointments().filter((x) => near.has(x.row) && calKind(x) !== "past") : [];
+  }
   function calCardToggle() {
     calCardOpen = !calCardOpen;
     try {
@@ -1352,9 +1405,91 @@
   }
   function calCardHtml(d) {
     if (!calCardOpen) return "";
+    const near = calNear(d),
+      next = calNearNext(near);
+    // začne mesiacom vlastného budúceho termínu, inak mesiacom najbližšej ukážky v okolí
     if (!calCardMonth)
-      calCardMonth = (d.appointment && d.appointment >= data.today ? d.appointment : data.today).slice(0, 7);
-    const g = calGrid(calCardMonth, d);
+      calCardMonth = (
+        d.appointment && d.appointment >= data.today ? d.appointment : next.length ? next[0].appointment : data.today
+      ).slice(0, 7);
+    const g = calGrid(calCardMonth, d, near);
+    const radius =
+      '<div class="calnear"><div class="calradius" role="group" aria-label="Okruh ukážok v okolí"><span>Okruh</span>' +
+      CAL_RADII.map(
+        (km) =>
+          '<button type="button" class="btn' +
+          (km === calCardKm ? " on" : "") +
+          '" data-calkm="' +
+          km +
+          '" aria-pressed="' +
+          (km === calCardKm) +
+          '">' +
+          km +
+          " km</button>",
+      ).join("") +
+      "</div>" +
+      (!near
+        ? '<p class="muted">Zariadenie nemá dohľadanú polohu – ukážky v okolí sa ukážu po dohľadaní polohy v Mape.</p>'
+        : next.length
+          ? "<h4>V okolí do " +
+            calCardKm +
+            " km</h4><ul>" +
+            next
+              .slice(0, 6)
+              .map((x) => {
+                const day = x.appointment.slice(0, 10),
+                  wd = CAL_DOW[(new Date(day + "T12:00").getDay() + 6) % 7],
+                  t = calTime(x.appointment),
+                  km = near.get(x.row),
+                  s = calSuggest(x, km);
+                return (
+                  '<li><button type="button" class="link" data-calcardgo="' +
+                  day.slice(0, 7) +
+                  '" title="Ukázať mesiac v kalendári"><b>' +
+                  wd +
+                  " " +
+                  esc(format(day)) +
+                  (t ? " " + t : "") +
+                  "</b></button> " +
+                  esc(x.city || x.name) +
+                  ' <span class="muted">· ' +
+                  esc(kmText(km)) +
+                  " · " +
+                  esc(x.name) +
+                  "</span>" +
+                  (data.readOnly || window.PREVIEW_DATA
+                    ? ""
+                    : ' <button type="button" class="btn calsuggest" data-calpick="' +
+                      day +
+                      '" data-caltime="' +
+                      s.time +
+                      '" title="' +
+                      esc(
+                        "Zapísať telefonát s termínom ukážky " +
+                          format(day) +
+                          " o " +
+                          s.time +
+                          (t
+                            ? (s.after ? " – po ukážke (" : " – pred ukážkou (") +
+                              (x.city || x.name) +
+                              " o " +
+                              t +
+                              ", 2 h) a ceste cca " +
+                              s.travel +
+                              " min"
+                            : ""),
+                      ) +
+                      '">Navrhnúť ' +
+                      s.time +
+                      "</button>") +
+                  "</li>"
+                );
+              })
+              .join("") +
+            "</ul>" +
+            (next.length > 6 ? '<p class="muted">a ďalšie ' + (next.length - 6) + " neskôr</p>" : "")
+          : '<p class="muted">V okruhu ' + calCardKm + " km nie je naplánovaná žiadna ukážka.</p>") +
+      "</div>";
     return (
       '<section class="calcard"><div class="calhead"><button type="button" class="btn" data-calcardnav="-1" aria-label="Predchádzajúci mesiac">‹</button><h3>' +
       CAL_MONTHS[g.m - 1] +
@@ -1364,12 +1499,17 @@
       (calCardMonth !== data.today.slice(0, 7)
         ? '<button type="button" class="btn" data-calcardnav="0">Tento mesiac</button>'
         : "") +
-      '<button type="button" class="btn" data-calcard="1">Skryť kalendár</button></div><div class="calgrid">' +
+      '<button type="button" class="btn" data-calcard="1">Skryť kalendár</button></div>' +
+      radius +
+      '<div class="calgrid">' +
       g.cells +
       '</div><p class="muted">' +
+      (near
+        ? "Ukážky v okruhu " + calCardKm + " km: čas, obec a vzdialenosť vzdušnou čiarou; ostatné sú stlmené."
+        : "Ukážky všetkých zariadení: čas a obec.") +
       (data.readOnly
-        ? "Ukážky všetkých zariadení: čas a obec."
-        : "Ukážky všetkých zariadení: čas a obec. Klikni na číslo dňa – otvorí sa zápis telefonátu s termínom ukážky v ten deň (čas uprav).") +
+        ? ""
+        : " Klikni na číslo dňa – otvorí sa zápis telefonátu s termínom ukážky v ten deň (čas uprav).") +
       "</p></section>"
     );
   }
@@ -1383,11 +1523,11 @@
     if (detailRow) detail(detailRow);
   }
   // klik na deň v kalendári karty: zápis telefonátu s termínom ukážky (9:00) a stavom „Termín dohodnutý“
-  function calPick(iso) {
+  function calPick(iso, time) {
     const row = detailRow;
     if (!row || data.readOnly) return;
     afterRefresh(() => {
-      openCall(row, { status: "Termín dohodnutý", appointment: iso + "T09:00" });
+      openCall(row, { status: "Termín dohodnutý", appointment: iso + "T" + (time || "09:00") });
       $("callmore").open = true;
       f().result.value = f().result.value || "Dohodnutý termín ukážky";
       f().appointment.focus();
@@ -2093,7 +2233,12 @@
       if (el) el.scrollIntoView({ block: "nearest" });
     }
     if (ds.calcardnav) calCardShift(+ds.calcardnav);
-    if (ds.calpick) calPick(ds.calpick);
+    if (ds.calkm) calCardRadius(+ds.calkm);
+    if (ds.calcardgo) {
+      calCardMonth = ds.calcardgo;
+      if (detailRow) detail(detailRow);
+    }
+    if (ds.calpick) calPick(ds.calpick, ds.caltime);
     if (b.id === "calsyncnow") calSyncNow(true);
     if (ds.calcancel) calResolve(+ds.calcancel, "cancel", b);
     if (ds.calrestore) calResolve(+ds.calrestore, "restore", b);

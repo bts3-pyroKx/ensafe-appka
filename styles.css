@@ -1021,6 +1021,64 @@
     outline-offset: -1px;
     font-weight: 700;
   }
+  .calev.far {
+    opacity: 0.4;
+  }
+  /* okruh a ukážky v okolí v kalendári karty */
+  .calnear {
+    margin-bottom: 10px;
+    font-size: 14px;
+  }
+  .calradius {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .calradius span {
+    color: var(--muted);
+    margin-right: 2px;
+  }
+  .calradius .btn {
+    padding: 4px 10px;
+  }
+  .calradius .btn.on {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: #fff;
+  }
+  .calnear h4 {
+    margin: 8px 0 4px;
+    font-size: 14px;
+  }
+  .calnear ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .calnear li {
+    padding: 3px 0;
+  }
+  .calnear .link {
+    border: 0;
+    background: none;
+    color: var(--blue);
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+  }
+  .calnear .link:hover {
+    text-decoration: underline;
+  }
+  .calnear .calsuggest {
+    padding: 2px 10px;
+    margin-left: 4px;
+    font-size: 13px;
+  }
+  .calcard .calnear .muted {
+    margin: 4px 0 0;
+  }
   .calremoved .item {
     display: flex;
     gap: 16px;
