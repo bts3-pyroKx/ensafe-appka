@@ -14,6 +14,16 @@
     "setStatus",
     "saveContact",
     "shipSetStatus",
+    "vykonSave",
+    "vykonMark",
+    "nedostatokSet",
+    "povinnostSave",
+    "povinnostSet",
+    "skolenieSave",
+    "zamestnanecSet",
+    "skolenieZrus",
+    "vykonPlan",
+    "prevadzkaSave",
   ];
   const store = {
     get(k) {

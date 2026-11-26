@@ -923,6 +923,19 @@
     border-color: #9aa3ae;
     color: var(--muted);
   }
+  .calev.k-kl {
+    background: #e3eefa;
+    border-color: #0b65b3;
+    color: #084b86;
+  }
+  .calev.kl.k-past {
+    border-style: dashed;
+  }
+  .calev.k-due {
+    background: transparent;
+    border: 1px dashed #0b65b3;
+    color: #0b65b3;
+  }
   .calev:hover {
     filter: brightness(0.96);
   }
@@ -954,6 +967,10 @@
   .caldate.k-past {
     background: #9aa3ae;
   }
+  .callegend i.k-kl,
+  .caldate.k-kl {
+    background: #0b65b3;
+  }
   .calrow {
     display: flex;
     gap: 16px;
@@ -980,6 +997,314 @@
   }
   .calremoved {
     border-color: var(--accent);
+  }
+  /* klienti BOZP a OPP */
+  .klmode #newvisit,
+  .klmode #newcall {
+    display: none;
+  }
+  .kllate {
+    color: var(--accent);
+  }
+  .kldone {
+    color: #1b6b45;
+  }
+  .klgroup {
+    padding: 14px 0 6px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--blue);
+    border-bottom: 1px solid var(--blue);
+  }
+  .klgroup.late {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .klrow .klright {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    text-align: right;
+    flex: 0 0 auto;
+  }
+  .klvisit .link,
+  .kldefpanel .link {
+    border: 0;
+    background: none;
+    color: var(--blue);
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+  .klvisit .link:hover,
+  .kldefpanel .link:hover {
+    text-decoration: underline;
+  }
+  .klrow.klhid {
+    opacity: 0.6;
+  }
+  .klrecent {
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .klstart {
+    margin-bottom: 16px;
+  }
+  .klstart .btn {
+    width: 100%;
+    justify-content: center;
+    padding: 12px 16px;
+    font-size: 16px;
+  }
+  .kllistbox {
+    padding: 0;
+  }
+  .klvisit .grow {
+    flex: 1;
+    min-width: 0;
+  }
+  .klmarks {
+    flex: 0 0 auto;
+    justify-content: flex-end;
+  }
+  .klmarks .btn.klon {
+    background: #e3f3ea;
+    border-color: #2e9a62;
+    color: #1b6b45;
+  }
+  .kllist {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    font-size: 14px;
+  }
+  .kllist li {
+    margin: 2px 0;
+  }
+  .kllist .klfixed {
+    color: var(--muted);
+    text-decoration: line-through;
+  }
+  .kltypes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .kltype input {
+    position: absolute;
+    opacity: 0;
+  }
+  .kltype span {
+    display: inline-block;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    background: #fff;
+  }
+  .kltype input:checked + span {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: #fff;
+  }
+  .kltype input:focus-visible + span {
+    outline: 2px solid var(--blue);
+    outline-offset: 2px;
+  }
+  .kltime {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .kltime input {
+    flex: 1;
+    min-width: 0;
+  }
+  .klh {
+    margin: 20px 0 8px;
+    font-size: 15px;
+  }
+  .kldef {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px 8px;
+    padding: 10px;
+    margin-bottom: 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .kldef input,
+  .kldef textarea {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    font: inherit;
+    font-size: 15px;
+    background: #fff;
+  }
+  .kldef textarea {
+    grid-column: 1/-1;
+    resize: vertical;
+  }
+  .klimp {
+    cursor: pointer;
+    justify-content: flex-start;
+  }
+  .klimp input {
+    width: 20px;
+    height: 20px;
+    margin-top: 2px;
+    flex: 0 0 auto;
+    accent-color: var(--blue);
+  }
+  .kltype {
+    position: relative; /* skryté políčko ostane vnútri okna (inak vodorovný posuvník) */
+  }
+  #kldutytplbox,
+  #kltraintplbox {
+    margin-bottom: 12px;
+  }
+  .klduties .klhead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .klduties .klhead h3 {
+    margin: 0;
+  }
+  .klduty,
+  .klduty:last-child {
+    border-left: 4px solid transparent;
+  }
+  .klduty.soon,
+  .klduty.soon:last-child {
+    border-left-color: #e0a800;
+  }
+  .klduty.late,
+  .klduty.late:last-child {
+    border-left-color: var(--accent);
+  }
+  .klduty.late p:first-of-type {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .klsoon {
+    color: #7a5b00;
+  }
+  .kllist .kllate {
+    font-weight: 600;
+  }
+  .kltrainstaff {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 4px 12px;
+    margin-top: 6px;
+  }
+  .klleft {
+    margin: 8px 0 0;
+    font-size: 14px;
+  }
+  .klleft .link {
+    border: 0;
+    background: none;
+    color: var(--blue);
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+  }
+  .pill.kl {
+    background: #e3eefa;
+    color: #084b86;
+  }
+  .klplan {
+    color: var(--blue);
+    font-weight: 600;
+  }
+  .klplanbox {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+    margin-bottom: 16px;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--blue);
+    border-radius: var(--radius);
+  }
+  .klplanbox .grow {
+    flex: 1;
+    min-width: 200px;
+  }
+  .klplanbox small {
+    display: block;
+  }
+  .klplanbox .notes {
+    margin: 6px 0 0;
+    white-space: pre-line;
+  }
+  .klplanbox + .calcard {
+    margin: -6px 0 16px;
+  }
+  .klplanday {
+    margin-top: 10px;
+    font-size: 14px;
+  }
+  .klplanday ul {
+    margin: 4px 0 0;
+    padding-left: 18px;
+  }
+  .klremind {
+    margin: 0 0 14px;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    background: #fff6db;
+    color: #5c4400;
+    font-size: 14px;
+  }
+  .klremind ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+  }
+  .klhelp {
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .klhelp h3 {
+    margin: 0 0 8px;
+    font-size: 16px;
+    color: var(--blue);
+  }
+  .klhelp ul {
+    margin: 0;
+    padding-left: 18px;
+    line-height: 1.5;
+  }
+  .klhelp li {
+    margin: 6px 0;
+  }
+  .klhelp i {
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .klhelpsrc {
+    font-size: 13px;
+  }
+  @media (max-width: 720px) {
+    .klvisit {
+      flex-direction: column;
+    }
+    .klmarks {
+      justify-content: flex-start;
+    }
   }
   /* kalendár v karte zariadenia */
   .calcard {
@@ -1121,6 +1446,13 @@
     }
     .calev.k-past {
       background: #9aa3ae;
+    }
+    .calev.k-kl {
+      background: #0b65b3;
+    }
+    .calev.k-due {
+      background: transparent;
+      border: 2px solid #0b65b3;
     }
     .caldow {
       padding: 4px 2px;

@@ -18,8 +18,33 @@
   let items = [], // { id, name, arg, at, state: "wait" | "conflict" | "error", msg, tried }
     flushing = false,
     loaded = false;
-  // čoho sa zápis týka: "d" = riadok denníka hovorov, "s" = riadok zásielky, "c" = zariadenie v Kontaktoch
-  const kind = (it) => (it.name === "updateCall" ? "d" : it.name === "shipSetStatus" ? "s" : "c");
+  // čoho sa zápis týka: "d" = riadok denníka hovorov, "s" = riadok zásielky, "c" = zariadenie v Kontaktoch,
+  // "v" = nový výkon alebo nová povinnosť u klienta (nový riadok, bez verzie), "x" = výkon (prenos), "n" = nedostatok,
+  // "p" = povinnosť klienta (úprava, splnenie), "e" = zamestnanec klienta, "t" = školenie zamestnanca (zrušenie);
+  // nové školenie (skolenieSave) a nová prevádzka (prevadzkaSave bez riadku) sú „v“; "k" = klient (plán výkonu);
+  // "r" = prevádzka klienta (úprava, zrušenie)
+  const KINDS = {
+    vykonPlan: "k",
+    skolenieSave: "v",
+    zamestnanecSet: "e",
+    skolenieZrus: "t",
+    updateCall: "d",
+    shipSetStatus: "s",
+    vykonSave: "v",
+    vykonMark: "x",
+    nedostatokSet: "n",
+    povinnostSet: "p",
+  };
+  const kind = (it) =>
+    it.name === "povinnostSave"
+      ? it.arg.row != null
+        ? "p"
+        : "v"
+      : it.name === "prevadzkaSave"
+        ? it.arg.row != null
+          ? "r"
+          : "v"
+        : KINDS[it.name] || "c";
   // aktuálna verzia riadku na serveri podľa naposledy načítaného dashboardu (undefined = riadok tam nie je / má iný názov)
   function versionNow(it) {
     if (!data) return undefined;
@@ -29,7 +54,21 @@
           ? (data.calls || []).find((c) => c.row === it.arg.row)
           : k === "s"
             ? (data.shipments || []).find((s) => s.row === it.arg.row)
-            : byRow.get(it.arg.row);
+            : k === "x"
+              ? (data.visits || []).find((v) => v.row === it.arg.row && v.id === it.arg.id)
+              : k === "n"
+                ? (data.defects || []).find((x) => x.row === it.arg.row && x.visit === it.arg.id)
+                : k === "p"
+                  ? (data.duties || []).find((x) => x.row === it.arg.row && x.id === it.arg.id && x.state === "active")
+                  : k === "k"
+                    ? (data.clients || []).find((x) => x.row === it.arg.row && x.id === it.arg.id)
+                    : k === "e"
+                      ? (data.employees || []).find((x) => x.row === it.arg.row && x.id === it.arg.id)
+                      : k === "t"
+                        ? (data.trainings || []).find((x) => x.row === it.arg.row && x.id === it.arg.id)
+                        : k === "r"
+                          ? (data.places || []).find((x) => x.row === it.arg.row && x.id === it.arg.id)
+                          : byRow.get(it.arg.row);
     return rec && rec.name === it.arg.name ? rec.version : undefined;
   }
   const save = () => A.queueStore.set(items);
@@ -45,6 +84,50 @@
     if (it.name === "saveContact") return "Úprava kontaktu – " + n;
     if (it.name === "shipSetStatus") return "Zásielka – " + (n || "bez zariadenia") + " → " + a.status;
     if (it.name === "saveActivity") return (a.type || "Návšteva") + " – " + n;
+    if (it.name === "vykonSave")
+      return (
+        "Výkon – " +
+        n +
+        ": " +
+        (a.types || []).join(", ") +
+        (a.defects && a.defects.length ? ", nedostatky: " + a.defects.length : "")
+      );
+    if (it.name === "vykonMark") return "Prenos výkonu – " + n + ": " + (a.field === "ecosun" ? "EcoSun" : "EBOZ");
+    if (it.name === "povinnostSave")
+      return (a.row != null ? "Úprava povinnosti – " : "Nová povinnosť – ") + n + ": " + (a.text || "");
+    if (it.name === "povinnostSet")
+      return "Povinnosť – " + n + ": " + (a.text || "") + (a.action === "cancel" ? " (zrušená)" : " (splnená)");
+    if (it.name === "vykonPlan")
+      return (
+        "Plán výkonu – " +
+        n +
+        ": " +
+        (a.start
+          ? a.start.slice(0, 10).split("-").reverse().join(".") +
+            (a.start.slice(11) !== "00:00" ? " " + a.start.slice(11) : "")
+          : "zrušený")
+      );
+    if (it.name === "skolenieSave")
+      return (
+        "Školenie – " +
+        n +
+        ": " +
+        (a.type || "") +
+        " (" +
+        ((a.employees || []).length + (a.newPeople || []).length) +
+        " zam.)"
+      );
+    if (it.name === "zamestnanecSet")
+      return "Zamestnanec – " + n + ": " + (a.person || "") + (a.left ? " (odišiel)" : "");
+    if (it.name === "skolenieZrus") return "Zrušené školenie – " + n + ": " + (a.person || "") + ", " + (a.type || "");
+    if (it.name === "prevadzkaSave")
+      return (
+        (a.row == null ? "Nová prevádzka – " : a.cancelled ? "Zrušená prevádzka – " : "Úprava prevádzky – ") +
+        n +
+        ": " +
+        (a.place || "")
+      );
+    if (it.name === "nedostatokSet") return "Nedostatok – " + n + (a.fixed ? ": odstránený" : ": znova otvorený");
     return "Úprava telefonátu – " + n;
   }
 
@@ -81,7 +164,7 @@
       } else if (b.dataset.act === "force") {
         // odoslať aj tak: zápis sa prenesie na aktuálny stav riadku (aj keby sa riadok v tabuľke posunul)
         const target = kind(it) === "c" ? deviceByName(it.arg.name) : null;
-        if (kind(it) === "c" ? !target : versionNow(it) === undefined) {
+        if (kind(it) === "v" ? false : kind(it) === "c" ? !target : versionNow(it) === undefined) {
           toast("Záznam „" + it.arg.name + "“ už v tabuľke nie je – zápis sa nedá odoslať, len zahodiť.");
           return;
         }
@@ -172,10 +255,18 @@
       }
       for (const it of items.slice()) {
         if (it.state !== "wait") continue;
-        if (it.arg.version !== versionNow(it) && !it.tried) {
+        if (kind(it) !== "v" && it.arg.version !== versionNow(it) && !it.tried) {
           it.state = "conflict";
           it.msg =
-            (kind(it) === "s" ? "Zásielka sa" : "Údaje zariadenia sa") +
+            ({
+              s: "Zásielka sa",
+              x: "Výkon sa",
+              n: "Nedostatok sa",
+              p: "Povinnosť sa",
+              e: "Zamestnanec sa",
+              t: "Školenie sa",
+              k: "Klient sa",
+            }[kind(it)] || "Údaje zariadenia sa") +
             " medzičasom zmenili inde (v tabuľke alebo na inom zariadení). Zápis sa neodoslal.";
           continue;
         }
@@ -184,7 +275,10 @@
           it.tried = true; // od tejto chvíle mohol zápis na serveri prebehnúť, aj keby odpoveď neprišla
           await save();
           const r = await A.send(it.name, [it.arg], it.id);
-          if (["saveCall", "completeTask", "setStatus", "saveContact"].includes(it.name) && !(r && r.duplicate))
+          if (
+            ["saveCall", "completeTask", "setStatus", "saveContact", "vykonPlan"].includes(it.name) &&
+            !(r && r.duplicate)
+          )
             calendar = true;
         } catch (e) {
           if (STOP.includes(e.code)) {
