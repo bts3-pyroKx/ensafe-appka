@@ -16,6 +16,7 @@
     "shipSetStatus",
     "vykonSave",
     "vykonMark",
+    "vykonZrus",
     "nedostatokSet",
     "povinnostSave",
     "povinnostSet",

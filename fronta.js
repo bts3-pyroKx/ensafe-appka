@@ -32,6 +32,7 @@
     shipSetStatus: "s",
     vykonSave: "v",
     vykonMark: "x",
+    vykonZrus: "x",
     nedostatokSet: "n",
     povinnostSet: "p",
   };
@@ -40,7 +41,11 @@
       ? it.arg.row != null
         ? "p"
         : "v"
-      : it.name === "prevadzkaSave"
+      : it.name === "vykonSave"
+        ? it.arg.row != null
+          ? "x"
+          : "v"
+        : it.name === "prevadzkaSave"
         ? it.arg.row != null
           ? "r"
           : "v"
@@ -86,12 +91,13 @@
     if (it.name === "saveActivity") return (a.type || "Návšteva") + " – " + n;
     if (it.name === "vykonSave")
       return (
-        "Výkon – " +
+        (a.row != null ? "Úprava výkonu – " : "Výkon – ") +
         n +
         ": " +
         (a.types || []).join(", ") +
         (a.defects && a.defects.length ? ", nedostatky: " + a.defects.length : "")
       );
+    if (it.name === "vykonZrus") return "Zmazaný výkon – " + n + (a.date ? ": " + a.date.split("-").reverse().join(".") : "");
     if (it.name === "vykonMark") return "Prenos výkonu – " + n + ": " + (a.field === "ecosun" ? "EcoSun" : "EBOZ");
     if (it.name === "povinnostSave")
       return (a.row != null ? "Úprava povinnosti – " : "Nová povinnosť – ") + n + ": " + (a.text || "");

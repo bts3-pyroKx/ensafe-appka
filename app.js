@@ -4169,7 +4169,7 @@
         (group === "late" ? "kllate" : group === "done" ? "kldone" : "") +
         '">' +
         (done
-          ? "✓ výkon " + esc(format(done.date))
+          ? "✓ výkon " + esc(format(done.date)) + " · úloha vo Flowii " + wd + " " + esc(format(c.next))
           : "ďalší výkon " +
             wd +
             " " +
@@ -4444,6 +4444,7 @@
           "</ul>"
         : '<p class="muted">Bez nedostatkov.</p>') +
       '</div><div class="quick klmarks">' +
+      (can ? '<button class="btn" data-kledit="' + v.row + '">Upraviť</button>' : "") +
       mark("ecosun", "V EcoSune") +
       mark("eboz", "V EBOZ") +
       '<button class="btn" data-klcopy="' +
@@ -5594,13 +5595,13 @@
     '<label class="field">Cesta (km)<input name="km" type="number" min="0" step="0.1" inputmode="decimal"></label>' +
     '<label class="field">Cesta (min)<input name="travelMin" type="number" min="0" step="1" inputmode="numeric"></label>' +
     "</div>" +
-    '<h3 class="klh">Nedostatky</h3><div id="kldefs"></div>' +
+    '<h3 class="klh">Nedostatky</h3><div id="kloldefs"></div><div id="kldefs"></div>' +
     '<button type="button" class="btn" data-kladd="1">+ Pridať nedostatok</button>' +
     '<label class="field" style="margin-top:16px">Poznámka k výkonu<textarea name="note" maxlength="5000" rows="3"></textarea></label>' +
     '<datalist id="klrooms"></datalist>' +
-    '<p class="muted">Rozpísaný výkon sa priebežne ukladá v tomto zariadení – nestratí sa ani po zatvorení okna. <button type="button" class="link" data-klreset="1">Začať odznova</button></p>' +
+    '<p class="muted" id="kldraftnote">Rozpísaný výkon sa priebežne ukladá v tomto zariadení – nestratí sa ani po zatvorení okna. <button type="button" class="link" data-klreset="1">Začať odznova</button></p>' +
     '<p id="klerror" class="error" hidden role="alert"></p>' +
-    '<div class="formfoot"><button type="button" class="btn" data-close="klvykon">Zavrieť</button><button type="submit" class="btn primary" id="klsave">Uložiť výkon</button></div></form></div>';
+    '<div class="formfoot"><button type="button" class="btn" id="kldelete" hidden>Zmazať výkon</button><button type="button" class="btn" data-close="klvykon">Zavrieť</button><button type="submit" class="btn primary" id="klsave">Uložiť výkon</button></div></form></div>';
   const klf = () => $("klform").elements;
   const klNow = () => {
     const d = new Date(),
@@ -5618,9 +5619,12 @@
     );
   }
   function klFormValue() {
-    const e = klf();
+    const e = klf(),
+      ed = klEditVisit();
     return {
       requestId: $("klform").dataset.rid,
+      // úprava uloženého výkonu: riadok, ID a verzia (server overí, že sa medzitým nezmenil)
+      ...(ed ? { row: ed.row, id: ed.id, version: ed.version } : {}),
       client: klFormId,
       name: (klById(klFormId) || {}).name || "", // len pre frontu appky (popis zápisu)
       date: e.date.value,
@@ -5697,11 +5701,71 @@
       defects: [],
     };
   }
+  // upravovaný výkon (null = nový výkon); rozpísaná úprava sa v zariadení neukladá
+  let klEditId = "",
+    klEditRec = null; // stav výkonu pri otvorení úpravy (riadok, ID, verzia)
+  const klEditVisit = () => (klEditId ? klEditRec : null);
+  function klEditOpen(row) {
+    const v = (data.visits || []).find((x) => x.row === +row),
+      c = v && klById(v.client);
+    if (!v || !c || !klCanWrite()) return;
+    klFormId = c.id;
+    klEditId = v.id;
+    klEditRec = { row: v.row, id: v.id, version: v.version };
+    klDialog("klvykon", KL_FORM);
+    $("klvykon").querySelector(".panelhead h2").textContent = "Upraviť výkon";
+    $("klformname").textContent = c.name;
+    const sent = [v.ecosun ? "EcoSun" : "", v.eboz ? "EBOZ" : ""].filter(Boolean);
+    $("klremind").innerHTML = sent.length
+      ? '<div class="klremind"><strong>Výkon je už označený ako prenesený do ' +
+        esc(sent.join(" a ")) +
+        ".</strong> Zmenu prepíš aj tam (značky ostanú).</div>"
+      : "";
+    klFill({
+      requestId: klNewId(),
+      place: v.place,
+      date: v.date,
+      from: v.from,
+      to: v.to,
+      types: v.types.split(/,\s*/).filter(Boolean),
+      km: v.km,
+      travelMin: v.travelMin,
+      note: v.note,
+      defects: [],
+    });
+    const old = klVisitDefects(v);
+    $("kloldefs").innerHTML = old.length
+      ? '<ul class="kllist">' +
+        old
+          .map(
+            (x) =>
+              "<li" +
+              (x.fixed ? ' class="klfixed"' : "") +
+              ">" +
+              (x.room ? "<b>" + esc(x.room) + ":</b> " : "") +
+              esc(x.text) +
+              "</li>",
+          )
+          .join("") +
+        '</ul><p class="muted">Zapísané nedostatky ostanú; nové pridáš tlačidlom nižšie.</p>'
+      : "";
+    $("kldraftnote").hidden = true;
+    $("kldelete").hidden = false;
+    $("klerror").hidden = true;
+    $("klsave").disabled = false;
+    $("klsave").textContent = "Uložiť zmeny";
+    $("klvykon").showModal();
+  }
   function klStart(id) {
     const c = klById(id);
     if (!c || !klCanWrite()) return;
     klFormId = id;
+    klEditId = "";
     klDialog("klvykon", KL_FORM);
+    $("klvykon").querySelector(".panelhead h2").textContent = "Výkon u klienta";
+    $("kloldefs").innerHTML = "";
+    $("kldraftnote").hidden = false;
+    $("kldelete").hidden = true;
     $("klformname").textContent = c.name;
     const remind = klRemindLines(c);
     $("klremind").innerHTML = remind.length
@@ -5717,8 +5781,33 @@
     $("klsave").textContent = "Uložiť výkon";
     $("klvykon").showModal();
   }
+  // zmazanie omylom zapísaného výkonu (v tabuľke ostane so stavom Zrušený, zmizne aj s nedostatkami)
+  function klDeleteVisit(btn) {
+    const rec = klEditVisit(),
+      v = rec && (data.visits || []).find((x) => x.id === rec.id);
+    if (!v || klSaving) return;
+    const n = klVisitDefects(v).length;
+    if (
+      !confirm(
+        "Zmazať výkon " +
+          format(v.date) +
+          (v.from ? " " + v.from + (v.to ? "–" + v.to : "") : "") +
+          (n ? " aj s nedostatkami (" + n + ")" : "") +
+          "? Z dashboardu zmizne; v tabuľke ostane so stavom Zrušený.",
+      )
+    )
+      return;
+    klEditId = "";
+    $("klvykon").close();
+    klWrite(
+      "vykonZrus",
+      { row: rec.row, id: rec.id, version: rec.version, name: v.name, date: v.date },
+      "Výkon zmazaný.",
+      btn,
+    );
+  }
   function klKeep() {
-    if (!klFormId || !$("klform")) return;
+    if (!klFormId || !$("klform") || klEditId) return;
     klDraftSet(klFormId, Object.assign(klFormValue(), { savedAt: new Date().toLocaleString("sk") }));
   }
   async function klSubmit(ev) {
@@ -5740,19 +5829,21 @@
     $("klerror").hidden = true;
     $("klsave").disabled = true;
     $("klsave").textContent = "Ukladám…";
+    const editing = !!klEditId;
     try {
       const r = await timedSave("vykonSave", v);
-      klDraftSet(klFormId, null);
+      if (!editing) klDraftSet(klFormId, null);
+      klEditId = "";
       $("klvykon").close();
       if (!(r && r.queued))
         toast(
-          "Výkon uložený" +
-            (v.defects.length ? " · nedostatky: " + v.defects.length : "") +
+          (editing ? (r && r.unchanged ? "Výkon bez zmeny" : "Výkon upravený") : "Výkon uložený") +
+            (v.defects.length ? " · " + (editing ? "nové " : "") + "nedostatky: " + v.defects.length : "") +
             (r && r.duplicate ? " (už bol uložený skôr)" : "") +
             ".",
         );
       await applySaved(r);
-      const school = v.types.filter((t) => /^Školenie/.test(t));
+      const school = editing ? [] : v.types.filter((t) => /^Školenie/.test(t));
       if (school.length) {
         const id = v.client;
         afterRefresh(() =>
@@ -5763,12 +5854,12 @@
         );
       }
     } catch (e) {
-      err("Uloženie zlyhalo: " + ((e && e.message) || e) + " Rozpísaný výkon ostáva uložený v zariadení.");
+      err("Uloženie zlyhalo: " + ((e && e.message) || e) + (editing ? "" : " Rozpísaný výkon ostáva uložený v zariadení."));
     } finally {
       klSaving = false;
       if ($("klvykon").open) {
         $("klsave").disabled = false;
-        $("klsave").textContent = "Uložiť výkon";
+        $("klsave").textContent = editing ? "Uložiť zmeny" : "Uložiť výkon";
       }
     }
   }
@@ -5981,6 +6072,11 @@
         );
     }
     if (ds.klcopy) klCopy(ds.klcopy);
+    if (b.id === "kldelete") klDeleteVisit(b);
+    if (ds.kledit) {
+      const row = ds.kledit;
+      afterRefresh(() => klEditOpen(row));
+    }
     if (ds.klhelp) klHelpOpen();
     if (ds.kldutyadd) afterRefresh(() => klDutyOpen(ds.kldutyadd, 0));
     if (ds.kldutyedit) {
