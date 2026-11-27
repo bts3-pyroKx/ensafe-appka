@@ -250,6 +250,7 @@
     "completeTask",
     "setStatus",
     "saveContact",
+    "renameDevice",
     "vykonPlan",
     "prevadzkaSave",
     "vykonSave",
@@ -731,8 +732,10 @@
     inpost: "https://inpost.pl/sledzenie-przesylek?number=",
   };
   const SHIP_TRACK_ANY = "https://t.17track.net/sk#nums=";
-  // zásielka po očakávanom doručení stále na ceste
-  const shipLate = (s) => s.status === SHIP.onWay && !!s.eta && s.eta < data.today;
+  // zásielka po očakávanom doručení stále na ceste; bez očakávaného doručenia viac ako SHIP_LATE_DAYS dní od odoslania
+  const SHIP_LATE_DAYS = 10;
+  const shipLate = (s) =>
+    s.status === SHIP.onWay && (s.eta ? s.eta < data.today : !!s.sent && s.sent < addDays(-SHIP_LATE_DAYS));
   const shipActive = () => (data.shipments || []).filter((s) => s.status !== SHIP.off);
   const shipsOf = (d) => shipActive().filter((s) => s.dev === d.row);
   const shipInStock = (d) => shipsOf(d).some((s) => s.status === SHIP.stock);
@@ -753,7 +756,7 @@
         ? s.eta
           ? "očakávané " + format(s.eta) + (shipLate(s) ? " – mešká" : "")
           : s.sent
-            ? "odoslané " + format(s.sent)
+            ? "odoslané " + format(s.sent) + (shipLate(s) ? " – mešká" : "")
             : ""
         : s.stock
           ? "na sklade od " + format(s.stock)
@@ -3165,7 +3168,17 @@
           r.quote.no +
           (r.recovered ? " (vytvorená minule) je teraz zapísaná aj v tabuľke" : " je vo Flowii") +
           (r.partnerCreated ? " (odberateľ bol vo Flowii založený)" : "") +
-          ".",
+          (r.quote.sum ? ", suma " + euro(Number(r.quote.sum)) + " bez DPH" : "") +
+          "." +
+          // suma je podľa cenníka Flowii – ak sa líši od cien vo formulári, povie sa to
+          (r.priceChanged && r.priceChanged.length
+            ? " Cena vo Flowii je iná ako v dashboarde: " +
+              r.priceChanged.map((x) => x.name + " " + euro(x.flowii) + " (v dashboarde " + euro(x.dashboard) + ")").join(", ") +
+              "."
+            : "") +
+          (r.priceMissing && r.priceMissing.length
+            ? " Cenu vo Flowii sa nepodarilo prečítať (" + r.priceMissing.join(", ") + ") – suma je odhad, over ju vo Flowii."
+            : ""),
       );
       refresh(true, "ponuka");
     } catch (e) {
@@ -3259,7 +3272,8 @@
     btn.textContent = "PDF";
   }
   // ---------- úprava kontaktu v karte zariadenia (saveContact) ----------
-  // Názov, obec a okres sa tu nemenia – podľa nich sa páruje história, mapa, zásielky a kalendár (menia sa v tabuľke).
+  // Názov, obec a okres sa tu nemenia – podľa nich sa páruje história, mapa, zásielky a kalendár. Názov a obec mení
+  // v dashboarde „Premenovať zariadenie“ (renameDevice) naraz vo všetkých hárkoch; okres len v tabuľke.
   const CONTACT_FIELDS = [
     ["person", "Kontaktná osoba / oddelenie", 500],
     ["phone", "Telefón", 500],
@@ -3291,10 +3305,73 @@
             : '<input name="' + k + '" maxlength="' + max + '" value="' + esc(v[k]) + '">') +
           "</label>",
       ).join("") +
-      '<p class="muted" style="font-size:13px;margin:4px 0 8px">Viac telefónov alebo e-mailov oddeľ bodkočiarkou. Názov, obec a okres sa menia v tabuľke.</p>' +
-      '<p style="display:flex;gap:8px;flex-wrap:wrap"><button type="submit" class="btn primary" id="contactsave">Uložiť kontakt</button><button type="button" class="btn" data-contactcancel="1">Zrušiť</button></p></form>'
+      '<p class="muted" style="font-size:13px;margin:4px 0 8px">Viac telefónov alebo e-mailov oddeľ bodkočiarkou.' +
+      (renameAllowed() ? "" : " Názov, obec a okres sa menia v tabuľke.") +
+      "</p>" +
+      '<p style="display:flex;gap:8px;flex-wrap:wrap"><button type="submit" class="btn primary" id="contactsave">Uložiť kontakt</button><button type="button" class="btn" data-contactcancel="1">Zrušiť</button></p></form>' +
+      renameForm(byRow.get(contactEdit))
     );
   }
+  // ---------- premenovanie zariadenia (renameDevice – len dashboard) ----------
+  // Prepíše názov a obec aj v histórii hovorov a návštev, mape, odberateľovi, cenových ponukách a zásielkach.
+  const renameAllowed = () => !data.readOnly && !window.APPKA;
+  function renameForm(d) {
+    if (!d || !renameAllowed()) return "";
+    return (
+      '<details class="renamebox" style="margin-top:10px"><summary>Premenovať zariadenie (názov, obec)</summary>' +
+      '<label class="field">Názov zariadenia / pracoviska<input id="renamename" maxlength="300" value="' +
+      esc(d.name) +
+      '"></label><label class="field">Obec<input id="renamecity" maxlength="100" value="' +
+      esc(d.city) +
+      '"></label><p class="muted" style="font-size:13px;margin:4px 0 8px">Zmení sa aj história hovorov a návštev, mapa, odberateľ, cenové ponuky a zásielky. Udalosť v kalendári ukážok sa vytvorí znova. Vo Flowii sa nič nemení.</p>' +
+      '<p><button type="button" class="btn" id="renamesave" data-rename="' +
+      d.row +
+      '">Premenovať</button></p></details>'
+    );
+  }
+  async function renameDevice(row) {
+    const d = byRow.get(row);
+    if (!d || contactSaving || window.PREVIEW_DATA || !$("renamename")) return;
+    if (refreshing) {
+      toast("Ešte obnovujem údaje po uložení, skús o chvíľu.");
+      return;
+    }
+    const newName = $("renamename").value.trim(),
+      newCity = $("renamecity").value.trim();
+    if (!newName) return toast("Názov zariadenia nemôže byť prázdny.");
+    if (newName === d.name && newCity === d.city) return toast("Názov ani obec sa nezmenili.");
+    if (!confirm("Premenovať „" + d.name + ", " + d.city + "“ na „" + newName + ", " + newCity + "“?")) return;
+    const btn = $("renamesave");
+    contactSaving = true;
+    btn.disabled = true;
+    btn.textContent = "Premenúvam…";
+    try {
+      const r = await timedSave("renameDevice", { row: d.row, name: d.name, version: d.version, newName, newCity });
+      const c = (r && r.counts) || {},
+        parts = Object.keys(c).map((k) => k + " " + c[k]);
+      toast(
+        "Zariadenie premenované" +
+          (parts.length ? " (prepísané: " + parts.join(", ") + ")" : "") +
+          "." +
+          (r && r.historySkipped
+            ? " Históriu hovorov a návštev som nemenil – pôvodný názov má viac zariadení; uprav ju v tabuľke."
+            : ""),
+      );
+      contactEdit = 0;
+      await applySaved(r);
+      if ($("detail").open) detail(d.row);
+    } catch (e) {
+      toast("Premenovanie zlyhalo: " + e.message);
+      btn.disabled = false;
+      btn.textContent = "Premenovať";
+    } finally {
+      contactSaving = false;
+    }
+  }
+  $("detail").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-rename]");
+    if (b) renameDevice(+b.dataset.rename);
+  });
   function contactValues() {
     const el = $("contactform").elements,
       v = {};
