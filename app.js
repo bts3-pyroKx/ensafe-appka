@@ -243,7 +243,19 @@
     if (CAL_WRITES.includes(name) && !(r && r.duplicate)) syncCalendarLater();
     return r;
   }
-  const CAL_WRITES = ["saveCall", "completeTask", "setStatus", "saveContact", "vykonPlan"]; // saveContact: miesto a kontakt v udalosti
+  // saveContact a prevadzkaSave: miesto a kontakt v udalosti; vykonSave, vykonZrus, nedostatokSet: otvorené nedostatky
+  // v popise udalosti výkonu
+  const CAL_WRITES = [
+    "saveCall",
+    "completeTask",
+    "setStatus",
+    "saveContact",
+    "vykonPlan",
+    "prevadzkaSave",
+    "vykonSave",
+    "vykonZrus",
+    "nedostatokSet",
+  ];
   function syncCalendarLater() {
     api("syncCalendar")
       .then((r) => calSyncResult(r, false))
@@ -4193,6 +4205,7 @@
   }
   // Ďalší výkon podľa najbližšej otvorenej úlohy „Výkon technika …“ vo Flowii. Ak je v dashboarde zapísaný výkon
   // najviac 45 dní pred termínom úlohy (alebo neskôr), výkon je hotový a čaká sa len na uzavretie úlohy vo Flowii.
+  // Pri krátkej periodicite najviac polovica periódy (1M → 15 dní), inak by výkon minulého mesiaca „splnil“ aj ďalšiu úlohu.
   const KL_GROUPS = [
     ["late", "Po termíne"],
     ["week", "Tento týždeň"],
@@ -4206,10 +4219,49 @@
     d.setDate(d.getDate() + n);
     return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
   };
+  const klDoneWindow = (c) => {
+    const m = /^(\d+)M$/.exec(c.period || "");
+    return m ? Math.min(45, Math.floor((+m[1] * 30) / 2)) : 45;
+  };
+  // uplynutý plán bez výkonu: plánovaný deň je za nami a od neho nie je zapísaný žiadny výkon (inak by plán ticho zmizol)
+  const klPlanMissed = (c) =>
+    c.plan && c.plan.slice(0, 10) < data.today && !klVisitsOf(c.id).some((v) => v.date >= c.plan.slice(0, 10))
+      ? c.plan
+      : "";
+  // Klient bez úlohy vo Flowii: termín podľa uplynutého plánu, budúceho plánu alebo posledného výkonu + periodicita.
+  function klNextNoTask(c) {
+    const missed = klPlanMissed(c);
+    if (missed)
+      return {
+        group: "late",
+        html: '<span class="kllate">plán ' + esc(klPlanText(missed)) + " uplynul · výkon nezapísaný</span>",
+      };
+    const last = klVisitsOf(c.id)[0],
+      m = /^(\d+)M$/.exec(c.period || ""),
+      due = c.plan && c.plan.slice(0, 10) >= data.today ? "" : m && last ? klAddMonths(last.date, +m[1]) : "";
+    const when = c.plan && c.plan.slice(0, 10) >= data.today ? c.plan.slice(0, 10) : due;
+    if (!when) return { group: "none", html: "" };
+    const days = Math.round((new Date(when + "T12:00") - new Date(data.today + "T12:00")) / 864e5),
+      dow = (new Date(data.today + "T12:00").getDay() + 6) % 7,
+      weekEnd = klAddDays(data.today, 6 - dow),
+      group = days < 0 ? "late" : when <= weekEnd ? "week" : when <= klAddDays(weekEnd, 7) ? "next" : "later";
+    return {
+      group,
+      days,
+      html: due
+        ? '<span class="' +
+          (days < 0 ? "kllate" : "") +
+          '">podľa periodicity ' +
+          esc(format(due)) +
+          (days < 0 ? " · mešká " + klDays(-days) : "") +
+          " · bez úlohy vo Flowii</span>"
+        : '<span class="muted">bez úlohy vo Flowii</span>',
+    };
+  }
   function klNext(c) {
-    if (!c.next) return { group: "none", html: "" };
+    if (!c.next) return klNextNoTask(c);
     const days = Math.round((new Date(c.next + "T12:00") - new Date(data.today + "T12:00")) / 864e5),
-      done = klVisitsOf(c.id).find((v) => v.date >= klAddDays(c.next, -45)),
+      done = klVisitsOf(c.id).find((v) => v.date >= klAddDays(c.next, -klDoneWindow(c))),
       dow = (new Date(data.today + "T12:00").getDay() + 6) % 7, // 0 = pondelok
       weekEnd = klAddDays(data.today, 6 - dow),
       group = done
@@ -4353,7 +4405,9 @@
         n.html,
         c.plan && c.plan.slice(0, 10) >= data.today
           ? '<span class="klplan">plán ' + esc(klPlanText(c.plan)) + "</span>"
-          : "",
+          : c.next && klPlanMissed(c)
+            ? '<span class="kllate">plán ' + esc(klPlanText(c.plan)) + " uplynul · výkon nezapísaný</span>"
+            : "",
         c.city ? esc(c.city) : "",
         c.subtype ? pill(c.subtype + (c.period ? " · " + c.period : "")) : c.period ? pill(c.period) : "",
         c.hidden ? pill("Skrytý") : "",
@@ -4406,15 +4460,61 @@
       (x.fixed ? " · odstránené " + esc(format(x.fixedOn)) : "") +
       "</small></div>" +
       (klCanWrite()
-        ? '<button class="btn" data-kldefect="' +
+        ? '<div class="quick"><button class="btn" data-kldefedit="' +
+          x.row +
+          '">Opraviť</button><button class="btn" data-kldefect="' +
           x.row +
           '" data-fix="' +
           (x.fixed ? "0" : "1") +
           '">' +
           (x.fixed ? "Znova otvoriť" : "Odstránené") +
-          "</button>"
+          "</button></div>"
         : "") +
       "</div>"
+    );
+  }
+  // oprava popisu a miestnosti nedostatku (preklep, presnejší popis)
+  let klDefEditRow = 0;
+  const KL_DEFEDIT_FORM =
+    '<div class="panelhead"><h2>Opraviť nedostatok</h2><button class="btn" data-close="kldefeditdlg">Zavrieť</button></div><div class="dialogbody"><form id="kldefeditform" novalidate>' +
+    '<label class="field">Miestnosť<input name="room" maxlength="200"></label>' +
+    '<label class="field">Popis<textarea name="text" maxlength="2000" rows="3" required></textarea></label>' +
+    '<p id="kldefediterror" class="error" hidden role="alert"></p>' +
+    '<div class="formfoot"><button type="button" class="btn" data-close="kldefeditdlg">Zavrieť</button><button type="submit" class="btn primary">Uložiť</button></div></form></div>';
+  function klDefEditOpen(row) {
+    const x = (data.defects || []).find((y) => y.row === +row);
+    if (!x || !klCanWrite()) return;
+    klDefEditRow = x.row;
+    klDialog("kldefeditdlg", KL_DEFEDIT_FORM);
+    const e = $("kldefeditform").elements;
+    e.room.value = x.room;
+    e.text.value = x.text;
+    $("kldefediterror").hidden = true;
+    $("kldefeditdlg").showModal();
+  }
+  async function klDefEditSubmit(ev) {
+    ev.preventDefault();
+    const x = (data.defects || []).find((y) => y.row === klDefEditRow),
+      e = $("kldefeditform").elements,
+      room = e.room.value.trim(),
+      text = e.text.value.trim();
+    if (!x || klSaving) return;
+    if (!text) {
+      $("kldefediterror").textContent = "Doplň popis nedostatku.";
+      $("kldefediterror").hidden = false;
+      return;
+    }
+    if (refreshing) {
+      $("kldefediterror").textContent = "Ešte obnovujem údaje po uložení, skús to o chvíľu.";
+      $("kldefediterror").hidden = false;
+      return;
+    }
+    $("kldefeditdlg").close();
+    if (room === x.room && text === x.text) return;
+    await klWrite(
+      "nedostatokSet",
+      { row: x.row, id: x.visit, name: x.name, version: x.version, room, text },
+      "Nedostatok opravený.",
     );
   }
   // prevádzka nedostatku = prevádzka jeho výkonu („Reštaurácia 2 · Kuchyňa“)
@@ -4499,6 +4599,15 @@
                 (x.room ? "<b>" + esc(x.room) + ":</b> " : "") +
                 esc(x.text) +
                 (x.fixed ? " (odstránené)" : "") +
+                (can
+                  ? ' <span class="kldefbtns"><button class="link" data-kldefedit="' +
+                    x.row +
+                    '">opraviť</button>' +
+                    (x.fixed
+                      ? ' · <button class="link" data-kldefect="' + x.row + '" data-fix="0">znova otvoriť</button>'
+                      : "") +
+                    "</span>"
+                  : "") +
                 "</li>",
             )
             .join("") +
@@ -4589,7 +4698,7 @@
         ? '<div class="quick klmarks"><button class="btn" data-kldutydone="' +
           x.row +
           '">' +
-          (x.months ? "Splnené dnes" : "Hotové") +
+          (x.months ? "Splnené" : "Hotové") +
           '</button><button class="btn" data-kldutyedit="' +
           x.row +
           '">Upraviť</button></div>'
@@ -4623,7 +4732,33 @@
           list.map(klDutyHtml).join("") +
           "</div>"
         : '<p class="muted">Nič. Pridaj napr. cvičný poplach alebo doplnenie denníka uzáverov; školenia zamestnancov zapisuj nižšie.</p>') +
+      klDutiesDoneHtml(c) +
       "</div>"
+    );
+  }
+  // hotové jednorazové úlohy (posledných 5) – omylom označenú sa dá vrátiť medzi aktívne
+  function klDutiesDoneHtml(c) {
+    const done = (data.duties || [])
+      .filter((x) => x.client === c.id && x.state === "done")
+      .sort((a, b) => (b.doneOn || "").localeCompare(a.doneOn || "") || b.row - a.row)
+      .slice(0, 5);
+    if (!done.length) return "";
+    return (
+      '<details class="kldone-list"><summary class="muted">Hotové úlohy (' +
+      done.length +
+      ")</summary>" +
+      done
+        .map(
+          (x) =>
+            '<div class="item"><div class="grow">' +
+            esc(x.text) +
+            (x.doneOn ? ' <small class="muted">hotové ' + esc(format(x.doneOn)) + "</small>" : "") +
+            "</div>" +
+            (klCanWrite() ? '<button class="btn" data-kldutyreopen="' + x.row + '">Vrátiť</button>' : "") +
+            "</div>",
+        )
+        .join("") +
+      "</details>"
     );
   }
   const KL_DUTY_FORM =
@@ -4708,9 +4843,67 @@
       klSaving = false;
     }
   }
-  function klDutySet(row, action, btn) {
+  // „Splnené“ s potvrdením: dátum splnenia (predvolene dnes) a pri opakovanej povinnosti ďalší termín – predvyplnený
+  // výpočtom z lehoty; ak ho človek nezmení, v tabuľke ostane prázdny (počíta sa z dátumu „naposledy“).
+  let klDoneRow = 0;
+  const KL_DONE_FORM =
+    '<div class="panelhead"><h2>Splnené</h2><button class="btn" data-close="kldutydonedlg">Zavrieť</button></div><div class="dialogbody"><form id="kldutydoneform" novalidate>' +
+    '<p id="kldonetext" style="margin-top:0;font-weight:700"></p>' +
+    '<div class="formgrid"><label class="field">Kedy splnené<input name="date" type="date" required></label>' +
+    '<label class="field" id="kldoneduebox">Ďalší termín<input name="due" type="date"></label></div>' +
+    '<p class="muted" id="kldonehint"></p>' +
+    '<p id="kldoneerror" class="error" hidden role="alert"></p>' +
+    '<div class="formfoot"><button type="button" class="btn" data-close="kldutydonedlg">Zavrieť</button><button type="submit" class="btn primary" id="kldonesave">Potvrdiť splnenie</button></div></form></div>';
+  function klDoneOpen(row) {
     const x = (data.duties || []).find((y) => y.row === +row && y.state === "active");
+    if (!x || !klCanWrite()) return;
+    klDoneRow = x.row;
+    klDialog("kldutydonedlg", KL_DONE_FORM);
+    const e = $("kldutydoneform").elements;
+    $("kldonetext").textContent = x.text;
+    e.date.value = data.today;
+    e.date.max = data.today;
+    $("kldoneduebox").hidden = !x.months;
+    e.due.value = x.months ? klAddMonths(data.today, x.months) : "";
+    $("kldonehint").textContent = x.months
+      ? "Ďalší termín je vypočítaný z lehoty " + x.months + " mes. – zmeň ho len vtedy, ak je iný."
+      : "Jednorazová úloha zmizne zo zoznamu „Na čo pamätať“ (omyl sa dá vrátiť v karte klienta).";
+    $("kldoneerror").hidden = true;
+    $("kldonesave").disabled = false;
+    $("kldutydonedlg").showModal();
+  }
+  function klDoneDateChanged() {
+    const x = (data.duties || []).find((y) => y.row === klDoneRow),
+      e = $("kldutydoneform").elements;
+    if (x && x.months && e.date.value) e.due.value = klAddMonths(e.date.value, x.months);
+  }
+  async function klDoneSubmit(ev) {
+    ev.preventDefault();
+    const x = (data.duties || []).find((y) => y.row === klDoneRow && y.state === "active"),
+      e = $("kldutydoneform").elements,
+      err = (s) => {
+        $("kldoneerror").textContent = s;
+        $("kldoneerror").hidden = false;
+      };
+    if (!x || klSaving) return;
+    const date = e.date.value,
+      calc = x.months && date ? klAddMonths(date, x.months) : "",
+      due = x.months && e.due.value !== calc ? e.due.value : "";
+    if (!date) return err("Doplň, kedy bolo splnené.");
+    if (date > data.today) return err("Dátum splnenia nemôže byť v budúcnosti.");
+    if (due && due <= date) return err("Ďalší termín musí byť po dátume splnenia.");
+    if (refreshing) return err("Ešte obnovujem údaje po uložení, skús to o chvíľu.");
+    $("kldutydonedlg").close();
+    await klWrite(
+      "povinnostSet",
+      { row: x.row, id: x.id, name: x.name, version: x.version, text: x.text, action: "done", date, due },
+      x.months ? "Splnené – ďalší termín " + format(due || calc) + "." : "Úloha je hotová.",
+    );
+  }
+  function klDutySet(row, action, btn) {
+    const x = (data.duties || []).find((y) => y.row === +row && y.state === (action === "reopen" ? "done" : "active"));
     if (!x) return;
+    if (action === "reopen" && !confirm("Vrátiť „" + x.text + "“ medzi aktívne (na čo pamätať)?")) return;
     if (
       action === "cancel" &&
       !confirm("Zrušiť povinnosť „" + x.text + "“? Zo zoznamu zmizne (v tabuľke ostane ako Zrušená).")
@@ -4720,11 +4913,7 @@
     klWrite(
       "povinnostSet",
       { row: x.row, id: x.id, name: x.name, version: x.version, text: x.text, action },
-      action === "cancel"
-        ? "Povinnosť zrušená."
-        : x.months
-          ? "Splnené – ďalší termín " + format(klAddMonths(data.today, x.months)) + "."
-          : "Úloha je hotová.",
+      action === "cancel" ? "Povinnosť zrušená." : "Úloha je znova medzi aktívnymi.",
       btn,
     );
   }
@@ -4877,7 +5066,13 @@
       '<div class="history klduties"><div class="klhead"><h3>Zamestnanci a školenia' +
       (active.length ? " · " + active.length : "") +
       "</h3>" +
-      (can ? '<div class="quick"><button class="btn" data-kltrain="' + esc(c.id) + '">Zapísať školenie</button></div>' : "") +
+      (can
+        ? '<div class="quick"><button class="btn" data-klstaffadd="' +
+          esc(c.id) +
+          '">+ Zamestnanci</button><button class="btn" data-kltrain="' +
+          esc(c.id) +
+          '">Zapísať školenie</button></div>'
+        : "") +
       "</div>" +
       (active.length
         ? '<div class="list kllistbox">' +
@@ -4939,6 +5134,7 @@
     '<label class="field" style="margin-top:12px">Dátum školenia<input name="date" type="date" required></label>' +
     '<h3 class="klh">Kto bol na školení</h3><div id="kltrainstaff"></div>' +
     '<label class="field" style="margin-top:12px">Noví zamestnanci – každý na nový riadok, funkcia za pomlčkou<textarea name="people" rows="3" placeholder="Meno Priezvisko – funkcia&#10;Meno Priezvisko"></textarea></label>' +
+    '<p class="muted" style="margin-top:-4px">Nových zamestnancov bez školenia pridáš tak, že školenie necháš prázdne (odober ho krížikom).</p>' +
     '<label class="field">Poznámka<input name="note" maxlength="500"></label>' +
     '<p id="kltrainerror" class="error" hidden role="alert"></p>' +
     '<div class="formfoot"><button type="button" class="btn" data-close="kltrain">Zavrieť</button><button type="submit" class="btn primary" id="kltrainsave">Uložiť školenie</button></div></form></div>';
@@ -5008,7 +5204,8 @@
         '<button type="button" class="btn" aria-pressed="false" data-kltraintpl="' + i + '">' + esc(t[0]) + "</button>",
     ).join("");
     $("kltrainkinds").innerHTML = "";
-    klTrainKindAdd("", "");
+    if (!(pre && pre.noTrain)) klTrainKindAdd("", "");
+    else klTrainSync();
     tpls.forEach(klTrainTpl);
     e.date.value = (pre && pre.date) || data.today;
     e.people.value = "";
@@ -5048,12 +5245,14 @@
       ids = [...$("kltrainstaff").querySelectorAll(".kltrainemp:checked")].map((i) => i.value),
       people = klPeopleOf(e.people.value);
     if (!c) return;
-    if (!kinds.length) return err("Vyber alebo napíš školenie.");
+    // bez školenia = len noví zamestnanci (školenie sa zapíše neskôr)
+    if (!kinds.length && (ids.length || !people.length))
+      return err("Vyber alebo napíš školenie. Bez školenia sa dajú uložiť len novo dopísaní zamestnanci.");
     if (kinds.some((k) => !k.type)) return err("Doplň názov školenia (alebo riadok odober krížikom).");
     if (kinds.some((k) => k.months && !(/^\d+$/.test(k.months) && +k.months >= 1 && +k.months <= 120)))
       return err("Platnosť musí byť 1 až 120 mesiacov.");
     if (new Set(kinds.map((k) => normalize(k.type))).size < kinds.length) return err("Školenie je v zozname dvakrát.");
-    if (!e.date.value) return err("Doplň dátum školenia.");
+    if (kinds.length && !e.date.value) return err("Doplň dátum školenia.");
     if (e.date.value > data.today) return err("Dátum školenia nemôže byť v budúcnosti.");
     if (!ids.length && !people.length) return err("Zaškrtni zamestnancov alebo dopíš nových.");
     const known = new Map(klStaff(c).map((x) => [normalize(x.person), x])),
@@ -5076,7 +5275,7 @@
         client: c.id,
         name: c.name, // len pre frontu appky (popis zápisu)
         types: kinds.map((k) => ({ type: k.type, months: k.months ? +k.months : "" })),
-        date: e.date.value,
+        date: kinds.length ? e.date.value : "",
         employees: ids,
         newPeople: people,
         note: e.note.value.trim(),
@@ -5084,7 +5283,11 @@
       $("kltrain").close();
       if (!(r && r.queued))
         toast(
-          (kinds.length > 1 ? "Školenia zapísané (" + kinds.length + "): " : "Školenie zapísané: ") +
+          (!kinds.length
+            ? "Zamestnanci pridaní bez školenia: "
+            : kinds.length > 1
+              ? "Školenia zapísané (" + kinds.length + "): "
+              : "Školenie zapísané: ") +
             (ids.length + people.length) +
             " zam." +
             (r && r.duplicate ? " (už bolo uložené skôr)" : ""),
@@ -5128,9 +5331,11 @@
               esc(format(t.date)) +
               (t.months ? ' <span class="muted">(platnosť ' + t.months + " mes.)</span>" : "") +
               (t.note ? '<p class="muted">' + esc(t.note) + "</p>" : "") +
-              '</div><button type="button" class="btn" data-kltrainzrus="' +
+              '</div><div class="quick"><button type="button" class="btn" data-kltrainedit="' +
               t.row +
-              '">Zrušiť</button></div>',
+              '">Upraviť</button><button type="button" class="btn" data-kltrainzrus="' +
+              t.row +
+              '">Zrušiť</button></div></div>',
           )
           .join("") +
         "</div>"
@@ -5173,6 +5378,66 @@
       klSaving = false;
     }
   }
+  // úprava zapísaného školenia (druh, dátum, platnosť, poznámka) – „Platí do“ prepočíta server
+  let klTrainEditRow = 0;
+  const KL_TRAINEDIT_FORM =
+    '<div class="panelhead"><h2>Upraviť školenie</h2><button class="btn" data-close="kltraineditdlg">Zavrieť</button></div><div class="dialogbody"><form id="kltraineditform" novalidate>' +
+    '<p id="kltraineditwho" style="margin-top:0;font-weight:700"></p>' +
+    '<label class="field">Školenie<input name="type" maxlength="150" required></label>' +
+    '<div class="formgrid"><label class="field">Dátum školenia<input name="date" type="date" required></label>' +
+    '<label class="field">Platnosť (mesiacov)<input name="months" type="number" min="1" max="120" step="1" inputmode="numeric" placeholder="bez opakovania"></label></div>' +
+    '<label class="field">Poznámka<input name="note" maxlength="500"></label>' +
+    '<p id="kltrainediterror" class="error" hidden role="alert"></p>' +
+    '<div class="formfoot"><button type="button" class="btn" data-close="kltraineditdlg">Zavrieť</button><button type="submit" class="btn primary">Uložiť</button></div></form></div>';
+  function klTrainEditOpen(row) {
+    const t = (data.trainings || []).find((y) => y.row === +row);
+    if (!t || !klCanWrite()) return;
+    klTrainEditRow = t.row;
+    if ($("klemp") && $("klemp").open) $("klemp").close();
+    klDialog("kltraineditdlg", KL_TRAINEDIT_FORM);
+    const e = $("kltraineditform").elements;
+    $("kltraineditwho").textContent = t.person;
+    e.type.value = t.type;
+    e.date.value = t.date;
+    e.date.max = data.today;
+    e.months.value = t.months;
+    e.note.value = t.note;
+    $("kltrainediterror").hidden = true;
+    $("kltraineditdlg").showModal();
+  }
+  async function klTrainEditSubmit(ev) {
+    ev.preventDefault();
+    const t = (data.trainings || []).find((y) => y.row === klTrainEditRow),
+      e = $("kltraineditform").elements,
+      months = e.months.value.trim(),
+      err = (s) => {
+        $("kltrainediterror").textContent = s;
+        $("kltrainediterror").hidden = false;
+      };
+    if (!t || klSaving) return;
+    if (!e.type.value.trim()) return err("Doplň názov školenia.");
+    if (!e.date.value) return err("Doplň dátum školenia.");
+    if (e.date.value > data.today) return err("Dátum školenia nemôže byť v budúcnosti.");
+    if (months && !(/^\d+$/.test(months) && +months >= 1 && +months <= 120))
+      return err("Platnosť musí byť 1 až 120 mesiacov.");
+    if (refreshing) return err("Ešte obnovujem údaje po uložení, skús to o chvíľu.");
+    $("kltraineditdlg").close();
+    await klWrite(
+      "skolenieUprav",
+      {
+        row: t.row,
+        id: t.id,
+        name: t.name,
+        version: t.version,
+        person: t.person,
+        type: e.type.value.trim(),
+        date: e.date.value,
+        months: months ? +months : "",
+        note: e.note.value.trim(),
+      },
+      "Školenie upravené.",
+    );
+  }
   function klTrainCancel(row, btn) {
     const t = (data.trainings || []).find((y) => y.row === +row);
     if (!t || !confirm("Zrušiť omylom zapísané školenie „" + t.type + "“ z " + format(t.date) + " (" + t.person + ")?"))
@@ -5203,6 +5468,7 @@
   }
   function klPlanBox(c) {
     const has = c.plan && c.plan.slice(0, 10) >= data.today,
+      missed = klPlanMissed(c),
       can = klCanWrite();
     return (
       '<div class="klplanbox"><div class="grow">' +
@@ -5211,8 +5477,14 @@
           esc(klPlanText(c.plan)) +
           (klPlaceById(c.planPlace) ? " – " + esc(klPlaceById(c.planPlace).place) : "") +
           '</strong><small class="muted">v Google kalendári „Výkony BOZP a OPP“</small>'
-        : "<strong>Výkon nie je naplánovaný</strong>" +
-          (c.next ? '<small class="muted">termín podľa Flowii ' + esc(format(c.next)) + "</small>" : "")) +
+        : missed
+          ? '<strong class="kllate">Plánovaný výkon ' +
+            esc(klPlanText(missed)) +
+            ' uplynul – výkon nie je zapísaný</strong><small class="muted">zapíš výkon alebo ho naplánuj znova' +
+            (c.next ? " · termín podľa Flowii " + esc(format(c.next)) : "") +
+            "</small>"
+          : "<strong>Výkon nie je naplánovaný</strong>" +
+            (c.next ? '<small class="muted">termín podľa Flowii ' + esc(format(c.next)) + "</small>" : "")) +
       (c.planNote ? '<p class="notes">' + esc(c.planNote) + "</p>" : "") +
       '</div><div class="quick">' +
       (can
@@ -5858,7 +6130,12 @@
           format(v.date) +
           (v.from ? " " + v.from + (v.to ? "–" + v.to : "") : "") +
           (n ? " aj s nedostatkami (" + n + ")" : "") +
-          "? Z dashboardu zmizne; v tabuľke ostane so stavom Zrušený.",
+          "? Z dashboardu zmizne; v tabuľke ostane so stavom Zrušený." +
+          (v.ecosun || v.eboz
+            ? "\n\nPozor: výkon je už prenesený do " +
+              [v.ecosun ? "EcoSunu" : "", v.eboz ? "EBOZ" : ""].filter(Boolean).join(" a ") +
+              " – tam ho treba zmazať ručne."
+            : ""),
       )
     )
       return;
@@ -6116,6 +6393,7 @@
           b,
         );
     }
+    if (ds.kldefedit) afterRefresh(() => klDefEditOpen(ds.kldefedit));
     if (ds.kldefect) {
       const x = (data.defects || []).find((y) => y.row === +ds.kldefect);
       if (x)
@@ -6148,8 +6426,11 @@
       const x = (data.duties || []).find((y) => y.row === +ds.kldutyedit);
       if (x) afterRefresh(() => klDutyOpen(x.client, x.row));
     }
-    if (ds.kldutydone) klDutySet(ds.kldutydone, "done", b);
+    if (ds.kldutydone) afterRefresh(() => klDoneOpen(ds.kldutydone));
+    if (ds.kldutyreopen) klDutySet(ds.kldutyreopen, "reopen", b);
     if (ds.kltrain) afterRefresh(() => klTrainOpen(ds.kltrain, null));
+    if (ds.klstaffadd) afterRefresh(() => klTrainOpen(ds.klstaffadd, { noTrain: true }));
+    if (ds.kltrainedit) afterRefresh(() => klTrainEditOpen(ds.kltrainedit));
     if (ds.klplan) afterRefresh(() => klPlanOpen(ds.klplan, ""));
     if (ds.klplanpick && klCardId) {
       const id = klCardId;
@@ -6199,6 +6480,7 @@
     }
   });
   document.addEventListener("change", (e) => {
+    if (e.target.closest && e.target.closest("#kldutydoneform") && e.target.name === "date") klDoneDateChanged();
     if (e.target.id === "kltrainall")
       $("kltrainstaff")
         .querySelectorAll(".kltrainemp")
@@ -6211,6 +6493,9 @@
   document.addEventListener("submit", (e) => {
     if (e.target.id === "klform") klSubmit(e);
     if (e.target.id === "kldutyform") klDutySubmit(e);
+    if (e.target.id === "kldutydoneform") klDoneSubmit(e);
+    if (e.target.id === "kldefeditform") klDefEditSubmit(e);
+    if (e.target.id === "kltraineditform") klTrainEditSubmit(e);
     if (e.target.id === "kltrainform") klTrainSubmit(e);
     if (e.target.id === "klplanform") klPlanSubmit(e);
     if (e.target.id === "klempform") klEmpSubmit(e);

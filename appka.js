@@ -23,6 +23,7 @@
     "skolenieSave",
     "zamestnanecSet",
     "skolenieZrus",
+    "skolenieUprav",
     "vykonPlan",
     "prevadzkaSave",
   ];

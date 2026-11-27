@@ -1188,6 +1188,18 @@
   .klduty,
   .klduty:last-child {
     border-left: 4px solid transparent;
+    padding-left: 12px; /* pruh sa nesmie lepiť na text */
+  }
+  .kldone-list {
+    margin-top: 10px;
+  }
+  .kldone-list summary {
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .kldefbtns {
+    font-size: 13px;
+    white-space: nowrap;
   }
   .klduty.soon,
   .klduty.soon:last-child {

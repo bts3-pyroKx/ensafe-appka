@@ -28,6 +28,7 @@
     skolenieSave: "v",
     zamestnanecSet: "e",
     skolenieZrus: "t",
+    skolenieUprav: "t",
     updateCall: "d",
     shipSetStatus: "s",
     vykonSave: "v",
@@ -64,7 +65,12 @@
               : k === "n"
                 ? (data.defects || []).find((x) => x.row === it.arg.row && x.visit === it.arg.id)
                 : k === "p"
-                  ? (data.duties || []).find((x) => x.row === it.arg.row && x.id === it.arg.id && x.state === "active")
+                  ? (data.duties || []).find(
+                      (x) =>
+                        x.row === it.arg.row &&
+                        x.id === it.arg.id &&
+                        x.state === (it.arg.action === "reopen" ? "done" : "active"),
+                    )
                   : k === "k"
                     ? (data.clients || []).find((x) => x.row === it.arg.row && x.id === it.arg.id)
                     : k === "e"
@@ -102,7 +108,7 @@
     if (it.name === "povinnostSave")
       return (a.row != null ? "Úprava povinnosti – " : "Nová povinnosť – ") + n + ": " + (a.text || "");
     if (it.name === "povinnostSet")
-      return "Povinnosť – " + n + ": " + (a.text || "") + (a.action === "cancel" ? " (zrušená)" : " (splnená)");
+      return "Povinnosť – " + n + ": " + (a.text || "") + (a.action === "cancel" ? " (zrušená)" : a.action === "reopen" ? " (vrátená medzi aktívne)" : " (splnená)");
     if (it.name === "vykonPlan")
       return (
         "Plán výkonu – " +
@@ -125,6 +131,8 @@
       );
     if (it.name === "zamestnanecSet")
       return "Zamestnanec – " + n + ": " + (a.person || "") + (a.left ? " (odišiel)" : "");
+    if (it.name === "skolenieUprav")
+      return "Úprava školenia – " + n + ": " + (a.person || "") + ", " + (a.type || "");
     if (it.name === "skolenieZrus") return "Zrušené školenie – " + n + ": " + (a.person || "") + ", " + (a.type || "");
     if (it.name === "prevadzkaSave")
       return (
@@ -133,7 +141,10 @@
         ": " +
         (a.place || "")
       );
-    if (it.name === "nedostatokSet") return "Nedostatok – " + n + (a.fixed ? ": odstránený" : ": znova otvorený");
+    if (it.name === "nedostatokSet")
+      return (
+        "Nedostatok – " + n + (a.text !== undefined ? ": oprava textu" : a.fixed ? ": odstránený" : ": znova otvorený")
+      );
     return "Úprava telefonátu – " + n;
   }
 
@@ -272,6 +283,7 @@
               e: "Zamestnanec sa",
               t: "Školenie sa",
               k: "Klient sa",
+              r: "Prevádzka sa",
             }[kind(it)] || "Údaje zariadenia sa") +
             " medzičasom zmenili inde (v tabuľke alebo na inom zariadení). Zápis sa neodoslal.";
           continue;
@@ -282,7 +294,17 @@
           await save();
           const r = await A.send(it.name, [it.arg], it.id);
           if (
-            ["saveCall", "completeTask", "setStatus", "saveContact", "vykonPlan"].includes(it.name) &&
+            [
+              "saveCall",
+              "completeTask",
+              "setStatus",
+              "saveContact",
+              "vykonPlan",
+              "prevadzkaSave",
+              "vykonSave",
+              "vykonZrus",
+              "nedostatokSet",
+            ].includes(it.name) &&
             !(r && r.duplicate)
           )
             calendar = true;
