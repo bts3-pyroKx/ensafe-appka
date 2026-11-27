@@ -83,11 +83,28 @@
   function empty(s) {
     return '<div class="empty">' + esc(s) + "</div>";
   }
+  // Hlásenie je „popover“ (vrstva nad všetkým), aby ho neprekrylo otvorené modálne okno (showModal); pri každom
+  // hlásení sa zobrazí znova, takže je aj nad oknom otvoreným neskôr. Starší prehliadač: obyčajný prvok ako doteraz.
   function toast(s) {
-    $("toast").textContent = s;
-    $("toast").hidden = false;
+    const t = $("toast"),
+      pop = typeof t.showPopover === "function";
+    t.textContent = s;
+    t.hidden = false;
+    if (pop) {
+      try {
+        if (t.matches(":popover-open")) t.hidePopover();
+        t.showPopover();
+      } catch (e) {}
+    }
     clearTimeout(window.toastTimer);
-    window.toastTimer = setTimeout(() => ($("toast").hidden = true), 6500);
+    window.toastTimer = setTimeout(() => {
+      t.hidden = true;
+      if (pop) {
+        try {
+          t.hidePopover();
+        } catch (e) {}
+      }
+    }, 6500);
   }
   // V appke (mimo Apps Scriptu) idú volania cez window.APPKA (pwa/appka.js), v dashboarde cez google.script.run.
   function api(name, ...args) {
@@ -254,8 +271,15 @@
     refresh(true, "obnova po uložení");
   }
   let detailRow = null;
+  // Dnešný dátum podľa zariadenia (yyyy-MM-dd). Appka môže ukazovať dashboard uložený pred niekoľkými dňami (bez signálu) –
+  // formuláre a zápisy majú brať skutočný dnešok, nie deň posledného načítania.
+  function localToday() {
+    const d = new Date();
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
   function install(next) {
     data = next;
+    if (data && typeof data.today === "string" && localToday() > data.today) data.today = localToday();
     if (typeof quickState !== "undefined") quickState.clear();
     buildIndex();
     mailingData = null; // prehľad mailingu sa po novom načítaní dashboardu načíta znova, keď bude treba
@@ -2384,7 +2408,38 @@
       contactEdit = 0;
       if (detailRow) detail(detailRow);
     }
-    if (b.dataset.close && !saving && !visitSaving && !editSaving && !doneSaving && !klSaving) $(b.dataset.close).close();
+    if (b.dataset.close && !saving && !visitSaving && !editSaving && !doneSaving && !klSaving) {
+      if (!formLeaveOk(b.dataset.close)) return;
+      $(b.dataset.close).close();
+    }
+  });
+  // Rozpísaný zápis (telefonát, návšteva, úprava telefonátu, splnená úloha) sa pri Zavrieť / Zrušiť / Esc / Späť
+  // nezahodí bez otázky. „Rozpísaný“ = od otvorenia okna niečo zmenil človek (vyplnenie formulára kódom sa neráta).
+  const DIRTY_FORMS = { call: "callform", visit: "visitform", calledit: "calleditform", done: "doneform" },
+    formDirty = {};
+  function formLeaveOk(id) {
+    if (!formDirty[id]) return true;
+    if (!confirm("Zahodiť rozpísaný zápis? Nič sa neuloží.")) return false;
+    formDirty[id] = false;
+    return true;
+  }
+  Object.keys(DIRTY_FORMS).forEach((id) => {
+    const dlg = $(id);
+    dlg.showModal = function () {
+      formDirty[id] = false;
+      return HTMLDialogElement.prototype.showModal.apply(this, arguments);
+    };
+    ["input", "change"].forEach((ev) =>
+      $(DIRTY_FORMS[id]).addEventListener(ev, (e) => {
+        // výber zariadenia sám osebe nie je rozpísaný text
+        if (e.isTrusted && e.target.name !== "device") formDirty[id] = true;
+      }),
+    );
+    dlg.addEventListener("cancel", (e) => {
+      if (saving || visitSaving || editSaving || doneSaving) return; // počas ukladania okno nezavrie vlastná obsluha
+      if (!formLeaveOk(id)) e.preventDefault();
+    });
+    dlg.addEventListener("close", () => (formDirty[id] = false));
   });
   // Písanie do vyhľadávania prekreslí tabuľku až po krátkej pauze (150 ms); výber vo filtroch hneď.
   let searchTimer = 0;
@@ -2441,6 +2496,8 @@
     );
     p.clearAppointment = f().clearAppointment.checked;
     if (p.clearAppointment) p.appointment = "";
+    // stav by uložený termín zrušil, ale „Vymazať uložený termín“ je odškrtnuté = termín chce ponechať
+    else p.keepAppointment = !!apptToCancel(selected, p.status) && p.appointment === selected.appointment;
     p.order = f().order.checked;
     saving = true;
     $("save").disabled = true;
@@ -3094,13 +3151,15 @@
       toast(
         "Ponuka č. " +
           r.quote.no +
-          " je vo Flowii" +
+          (r.recovered ? " (vytvorená minule) je teraz zapísaná aj v tabuľke" : " je vo Flowii") +
           (r.partnerCreated ? " (odberateľ bol vo Flowii založený)" : "") +
           ".",
       );
       refresh(true, "ponuka");
     } catch (e) {
-      toast("Ponuku sa nepodarilo vytvoriť: " + ((e && e.message) || e));
+      const msg = String((e && e.message) || e);
+      // „Ponuka č. … je vo Flowii vytvorená, ale…“ – správa servera hovorí sama za seba (nová ponuka nevznikla)
+      toast(/^Ponuka č\./.test(msg) ? msg : "Ponuku sa nepodarilo vytvoriť: " + msg);
     }
     quoteBusy = 0;
     if ($("detail").open && detailRow === d.row) detail(d.row);
@@ -3351,7 +3410,7 @@
       requestId: crypto.randomUUID
         ? crypto.randomUUID()
         : Date.now() + "-" + Math.random().toString(36).slice(2) + "-quick",
-      date: data.today,
+      date: localToday(),
       phone: d.phone,
       person: d.person,
       note: "",
@@ -3377,7 +3436,8 @@
           ": " +
           (kind === "nezdvihli"
             ? "nezdvihli, ďalší pokus " + format(p.deadline) + "."
-            : "nemá záujem, úloha uzavretá."),
+            : "nemá záujem, úloha uzavretá.") +
+          (r && r.cancelled ? " Termín ukážky " + format(r.cancelled, true) + " bol zrušený." : ""),
       );
       await applySaved(r);
     } catch (e) {
@@ -3469,6 +3529,7 @@
       deadline: df().deadline.value,
       appointment: df().appointment.value,
       logCall: df().logCall.checked,
+      date: localToday(), // deň úkonu – zápis z fronty appky sa môže odoslať až neskôr
     };
     doneSaving = true;
     Array.from(df()).forEach((el) => (el.disabled = true));
@@ -5321,8 +5382,12 @@
     return v && klPlaceById(v.place) ? v.place : "";
   }
   // výber prevádzky vo formulári; klient bez prevádzok = pole sa skryje
-  function klPlaceSelect(sel, box, c, value) {
+  // keep = {id, name} doterajšej prevádzky upravovaného výkonu – ponúkne sa aj vtedy, keď je medzitým zrušená,
+  // aby úprava (napr. poznámky) prevádzku výkonu potichu nevymazala
+  function klPlaceSelect(sel, box, c, value, keep) {
     const list = c ? klPlacesOf(c.id) : [];
+    if (keep && keep.id && keep.name && !list.some((x) => x.id === keep.id))
+      list.push({ id: keep.id, place: keep.name + " (zrušená prevádzka)" });
     box.hidden = !list.length;
     sel.innerHTML =
       '<option value="">' +
@@ -5661,7 +5726,7 @@
   function klFill(v) {
     const e = klf();
     ["date", "from", "to", "km", "travelMin", "note"].forEach((k) => (e[k].value = v[k] == null ? "" : v[k]));
-    klPlaceSelect(e.place, $("klplacebox"), klById(klFormId), v.place || "");
+    klPlaceSelect(e.place, $("klplacebox"), klById(klFormId), v.place || "", { id: v.place, name: v.placeName });
     $("kltypes").innerHTML = klTypes()
       .map(
         (t) =>

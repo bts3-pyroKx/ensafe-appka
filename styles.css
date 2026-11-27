@@ -267,6 +267,11 @@
     max-width: calc(100% - 48px);
     z-index: 10;
     font-weight: 500;
+    /* popover: zrušiť predvolené umiestnenie v strede a rámik */
+    top: auto;
+    left: auto;
+    margin: 0;
+    border: 0;
   }
   .muted {
     color: var(--muted);

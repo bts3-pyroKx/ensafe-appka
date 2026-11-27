@@ -338,7 +338,9 @@
     await ready; // fronta zo zariadenia musí byť načítaná, inak by nový zápis predbehol čakajúce
     const id = A.newId();
     let tried = false;
-    if (!items.length) {
+    // rozhodujú len zápisy čakajúce na odoslanie – konflikt alebo chyba čaká na človeka a sám sa neodošle,
+    // takže by nemal posielať každý ďalší zápis do fronty (a hlásiť „bez pripojenia“)
+    if (!waiting()) {
       try {
         tried = true;
         return await A.send(name, [arg], id);
