@@ -150,11 +150,36 @@
   function deviceByName(name) {
     return byName.get(normalize(name));
   }
+  // telefón len číslicami bez predvoľby a úvodnej nuly: „+421 905 123 456“ aj „0905/123456“ = „905123456“
+  const phoneDigits = (s) =>
+    String(s || "")
+      .replace(/\D/g, "")
+      .replace(/^(00)?421/, "")
+      .replace(/^0+/, "");
   function hay(d) {
     let s = hayCache.get(d);
     if (s === undefined) {
       s = normalize(
-        [d.name, d.city, d.district, d.address, d.person, d.phone, d.action, d.taskText, d.result, d.note].join(" "),
+        [
+          d.name,
+          d.city,
+          d.district,
+          d.address,
+          d.person,
+          d.phone,
+          d.email,
+          d.web,
+          d.action,
+          d.taskText,
+          d.result,
+          d.note,
+        ]
+          .concat(
+            String(d.phone || "")
+              .split(/[;,]/)
+              .map(phoneDigits),
+          )
+          .join(" "),
       );
       hayCache.set(d, s);
     }
@@ -283,12 +308,19 @@
     }
     refresh(true, "obnova po uložení");
   }
-  let detailRow = null;
+  let detailRow = null,
+    cardBack = 0; // riadok karty, z ktorej sa otvoril formulár – po zatvorení formulára sa karta vráti
+  function leaveCard() {
+    cardBack = $("detail").open ? detailRow : 0;
+    if (cardBack) $("detail").close();
+  }
   // Dnešný dátum podľa zariadenia (yyyy-MM-dd). Appka môže ukazovať dashboard uložený pred niekoľkými dňami (bez signálu) –
   // formuláre a zápisy majú brať skutočný dnešok, nie deň posledného načítania.
   function localToday() {
     const d = new Date();
-    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    return (
+      d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0")
+    );
   }
   function install(next) {
     data = next;
@@ -659,6 +691,124 @@
       "</div>"
     );
   }
+  // Agenda dňa: ukážky, plánované výkony BOZP a OPP, termíny úloh Flowii a moje úlohy s termínom v daný deň.
+  function agendaItems(iso) {
+    const out = [],
+      clients = (data.clients || []).filter((c) => !c.hidden);
+    data.devices
+      .filter((d) => d.appointment && d.appointment.slice(0, 10) === iso)
+      .forEach((d) =>
+        out.push({
+          t: calTime(d.appointment),
+          k: "demo",
+          btn: '<button class="name" data-detail="' + d.row + '">' + esc(d.name) + "</button>",
+          p:
+            '<span class="agtag">EnSafe</span>' +
+            "Ukážka · " +
+            esc(d.city) +
+            " · " +
+            (d.confirmed ? "potvrdená" : "na potvrdenie"),
+        }),
+      );
+    clients.forEach((c) => {
+      const plan = c.plan && c.plan.slice(0, 10) === iso;
+      if (plan || (c.next === iso && klNext(c).group !== "done"))
+        out.push({
+          t: plan ? calTime(c.plan) : "",
+          k: "kl",
+          btn: '<button class="name" data-klcard="' + esc(c.id) + '">' + esc(c.name) + "</button>",
+          p:
+            '<span class="agtag kl">BOZP a OPP</span>' +
+            (plan ? "Výkon" : "Úloha vo Flowii: ďalší výkon") +
+            (c.city ? " · " + esc(c.city) : ""),
+        });
+    });
+    tasks()
+      .filter((d) => d.deadline === iso && !(d.appointment && d.appointment.slice(0, 10) === iso))
+      .forEach((d) =>
+        out.push({
+          t: "",
+          k: "task",
+          btn: '<button class="name" data-detail="' + d.row + '">' + esc(d.name) + "</button>",
+          p: '<span class="agtag">EnSafe</span>' + "Úloha: " + esc(d.taskText || d.action || "bez textu"),
+        }),
+      );
+    return out.sort((a, b) => (a.t || "99").localeCompare(b.t || "99"));
+  }
+  function agendaHtml() {
+    const tomorrow = klAddDays(data.today, 1),
+      late = tasks().filter((d) => d.category === "Po termíne").length,
+      day = (iso, label) => {
+        const items = agendaItems(iso);
+        return (
+          '<div><div class="agday">' +
+          label +
+          " · " +
+          CAL_DOW[(new Date(iso + "T12:00").getDay() + 6) % 7] +
+          " " +
+          esc(format(iso)) +
+          "</div>" +
+          (items
+            .map(
+              (x) =>
+                '<div class="item ag-' +
+                x.k +
+                '"><div>' +
+                x.btn +
+                "<p>" +
+                x.p +
+                '</p></div><div class="date">' +
+                (x.t || (x.k === "task" ? "" : "celý deň")) +
+                "</div></div>",
+            )
+            .join("") || '<p class="muted agempty">Nič naplánované.</p>') +
+          "</div>"
+        );
+      };
+    return (
+      '<section class="panel agenda"><div class="panelhead"><h2>Agenda</h2><button class="btn" data-view="calendar">Kalendár</button></div><div class="list agcols">' +
+      day(data.today, "Dnes") +
+      day(tomorrow, "Zajtra") +
+      "</div>" +
+      (late
+        ? '<p class="agempty agmore"><button class="link" data-view="tasks" data-group="work">Moje úlohy: ' +
+          late +
+          " po termíne</button></p>"
+        : "") +
+      "</section>"
+    );
+  }
+  // Klienti BOZP a OPP v Prehľade: počty a klienti po termíne alebo s výkonom tento týždeň.
+  function klOverviewHtml() {
+    const all = (data.clients || []).filter((c) => !c.hidden);
+    if (!all.length) return "";
+    const rows = all.map((c) => [c, klNext(c)]),
+      late = rows.filter(([, n]) => n.group === "late"),
+      week = rows.filter(([, n]) => n.group === "week"),
+      defects = klOpenDefects("").filter((x) => all.some((c) => c.id === x.client)).length,
+      duty = all.filter((c) => klRemindLines(c).some((x) => x.flag === "late")).length,
+      top = late.concat(week).slice(0, 5);
+    return (
+      '<h2 class="ovsec">Klienti BOZP a OPP</h2>' +
+      '<section class="panel"><div class="panelhead"><h2>Výkony po termíne a tento týždeň' +
+      (late.length ? ' · <span style="color:var(--accent)">' + late.length + " po termíne</span>" : "") +
+      '</h2><button class="btn" data-view="clients">Všetci klienti</button></div>' +
+      '<div class="klsum"><span><b>' +
+      week.length +
+      "</b> výkonov tento týždeň</span>" +
+      '<button class="link" data-view="kldefects"><b>' +
+      defects +
+      "</b> otvorených nedostatkov</button>" +
+      "<span" +
+      (duty ? ' class="kllate"' : "") +
+      "><b>" +
+      duty +
+      "</b> klientov s povinnosťou po termíne</span></div>" +
+      '<div class="list">' +
+      (top.map(([c, n]) => klRowHtml(c, n)).join("") || empty("Žiadny výkon po termíne ani tento týždeň.")) +
+      "</div></section>"
+    );
+  }
   function overview() {
     const ds = data.devices,
       upcoming = appointments().filter((d) => d.confirmed && d.appointment.slice(0, 10) >= data.today);
@@ -666,6 +816,23 @@
     const mailT = tasks("mail"),
       mailDue = mailT.filter((d) => d.category === "Po termíne" || d.category === "Dnes").length;
     return (
+      agendaHtml() +
+      '<h2 class="ovsec">EnSafe – evakuačné pomôcky</h2>' +
+      (mailT.length
+        ? '<div class="banner" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><span>Po mailingu čaká na zavolanie <strong>' +
+          mailT.length +
+          "</strong> zariadení" +
+          (mailDue ? " (" + mailDue + " dnes alebo po termíne)" : "") +
+          '. V Mojich úlohách nie sú, majú samostatný zoznam.</span><button class="btn" data-view="mailtasks">Zobraziť Po mailingu</button></div>'
+        : "") +
+      shipBanner() +
+      '<div class="grid"><section class="panel"><div class="panelhead"><h2>Moje úlohy' +
+      (overdue ? ' · <span style="color:var(--accent)">' + overdue + " po termíne</span>" : "") +
+      '</h2><button class="btn" data-view="tasks">Všetky úlohy</button></div><div class="list">' +
+      (tasks().slice(0, 5).map(taskItem).join("") || empty("Všetky úlohy sú vybavené.")) +
+      '</div></section><section class="panel"><div class="panelhead"><h2>Najbližšie ukážky</h2><button class="btn" data-view="appointments">Všetky termíny</button></div><div class="list">' +
+      (upcoming.slice(0, 5).map(apptItem).join("") || empty("Zatiaľ nie je dohodnutá budúca ukážka.")) +
+      "</div></section></div>" +
       '<div class="metrics">' +
       metric(ds.length, "Zariadení") +
       metric(ds.filter((d) => d.contacted).length, "Oslovených pracovísk") +
@@ -681,26 +848,12 @@
         ? " " + data.activityStats.visitOnlySites + " návštevy zatiaľ nemajú potvrdenú praktickú ukážku."
         : "") +
       "</div>" +
-      (mailT.length
-        ? '<div class="banner" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><span>Po mailingu čaká na zavolanie <strong>' +
-          mailT.length +
-          "</strong> zariadení" +
-          (mailDue ? " (" + mailDue + " dnes alebo po termíne)" : "") +
-          '. V Ďalších krokoch nie sú, majú samostatný zoznam.</span><button class="btn" data-view="mailtasks">Zobraziť Po mailingu</button></div>'
-        : "") +
-      shipBanner() +
-      '<div class="grid"><section class="panel"><div class="panelhead"><h2>Ďalšie kroky' +
-      (overdue ? ' · <span style="color:var(--accent)">' + overdue + " po termíne</span>" : "") +
-      '</h2><button class="btn" data-view="tasks">Všetky úlohy</button></div><div class="list">' +
-      (tasks().slice(0, 5).map(taskItem).join("") || empty("Všetky úlohy sú vybavené.")) +
-      '</div></section><section class="panel"><div class="panelhead"><h2>Najbližšie ukážky</h2><button class="btn" data-view="appointments">Všetky termíny</button></div><div class="list">' +
-      (upcoming.slice(0, 5).map(apptItem).join("") || empty("Zatiaľ nie je dohodnutá budúca ukážka.")) +
-      "</div></section></div>" +
       '<div class="grid"><section class="panel"><div class="panelhead"><h2>Stav oslovenia</h2></div>' +
       barChart("status") +
       '</section><section class="panel"><div class="panelhead"><h2>Zariadenia podľa okresu</h2></div>' +
       barChart("district") +
-      "</section></div>"
+      "</section></div>" +
+      klOverviewHtml()
     );
   }
   // ---------- zásielky ----------
@@ -720,7 +873,20 @@
     Zrušené: ["#f3f5f8", "#4b5563"],
   };
   // dopravcovia na výber (rovnaký zoznam ako SHIP.carriers na serveri, podľa ktorého sa rozpoznávajú v maile)
-  const SHIP_CARRIERS = ["DHL", "DPD", "GLS", "UPS", "FedEx", "TNT", "InPost", "Packeta", "SPS", "Geis", "Raben", "Schenker"];
+  const SHIP_CARRIERS = [
+    "DHL",
+    "DPD",
+    "GLS",
+    "UPS",
+    "FedEx",
+    "TNT",
+    "InPost",
+    "Packeta",
+    "SPS",
+    "Geis",
+    "Raben",
+    "Schenker",
+  ];
   // priame sledovanie u dopravcu; ostatní a neznámy dopravca → univerzálne sledovanie 17TRACK (dopravcu spozná z čísla)
   const SHIP_TRACK = {
     dhl: "https://www.dhl.com/sk-sk/home/tracking.html?tracking-id=",
@@ -1175,22 +1341,28 @@
     statusSaving = true;
     try {
       const edit = shipDlg.mode === "edit",
-        fields = { no: el.no.value, carrier: el.carrier.value, sent: el.sent.value, eta: el.eta.value, note: el.note.value };
+        fields = {
+          no: el.no.value,
+          carrier: el.carrier.value,
+          sent: el.sent.value,
+          eta: el.eta.value,
+          note: el.note.value,
+        };
       const r = await timedSave(
         edit ? "shipEdit" : s ? "shipAssign" : "shipAdd",
         edit
           ? Object.assign({ row: s.row, name: s.name, version: s.version }, fields)
           : s
-          ? { row: s.row, name: s.name, version: s.version, devices }
-          : {
-              no: el.no.value,
-              carrier: el.carrier.value,
-              sent: el.sent.value,
-              eta: el.eta.value,
-              status: el.status.value,
-              note: el.note.value,
-              devices,
-            },
+            ? { row: s.row, name: s.name, version: s.version, devices }
+            : {
+                no: el.no.value,
+                carrier: el.carrier.value,
+                sent: el.sent.value,
+                eta: el.eta.value,
+                status: el.status.value,
+                note: el.note.value,
+                devices,
+              },
       );
       $("shipdlg").close();
       toast(
@@ -1439,9 +1611,7 @@
               "</button>"
           : '<span class="calnum">' + day + "</span>") +
         (klc && klc.next === iso && !(klc.plan && klc.plan.slice(0, 10) === iso)
-          ? '<span class="calev k-due" title="Termín úlohy vo Flowii: ' +
-            esc(klc.task || "") +
-            '">Termín Flowii</span>'
+          ? '<span class="calev k-due" title="Termín úlohy vo Flowii: ' + esc(klc.task || "") + '">Termín Flowii</span>'
           : "") +
         evs.map(card ? cardChip : calChip).join("") +
         (plansByDay.get(iso) || []).map((c) => klPlanChip(c, !!card, klc && c.id === klc.id)).join("") +
@@ -1678,7 +1848,7 @@
               esc(format(d.appointment)) +
               "</strong><small>" +
               esc(calTime(d.appointment) || "celý deň") +
-              "</small></div><div class=\"grow\">" +
+              '</small></div><div class="grow">' +
               nameButton(d) +
               "<small>" +
               esc([d.city, d.person, d.phone].filter(Boolean).join(" · ")) +
@@ -1698,7 +1868,9 @@
       " " +
       y +
       '</h2><button type="button" class="btn" data-calnav="1" aria-label="Nasledujúci mesiac">›</button>' +
-      (calMonth !== data.today.slice(0, 7) ? '<button type="button" class="btn" data-calnav="0">Tento mesiac</button>' : "") +
+      (calMonth !== data.today.slice(0, 7)
+        ? '<button type="button" class="btn" data-calnav="0">Tento mesiac</button>'
+        : "") +
       '</div><div class="calgrid">' +
       cells +
       '</div><div class="callegend">' +
@@ -1727,12 +1899,18 @@
           r.conflicts +
           ").",
       );
-    if (r.removed) msg.push("Ukážka bola zmazaná v Google kalendári – rozhodni v záložke Kalendár (" + r.removed + ").");
+    if (r.removed)
+      msg.push("Ukážka bola zmazaná v Google kalendári – rozhodni v záložke Kalendár (" + r.removed + ").");
     const kl = r.kl || {};
     if (kl.moved) msg.push("Posun výkonu z Google kalendára je zapísaný v dashboarde (" + kl.moved + ").");
     if (kl.conflicts)
-      msg.push("Posun výkonu v Google kalendári sa neprevzal, plán sa medzičasom zmenil aj v dashboarde (" + kl.conflicts + ").");
-    if (kl.removed) msg.push("Výkon bol zmazaný v Google kalendári – rozhodni v záložke Kalendár (" + kl.removed + ").");
+      msg.push(
+        "Posun výkonu v Google kalendári sa neprevzal, plán sa medzičasom zmenil aj v dashboarde (" +
+          kl.conflicts +
+          ").",
+      );
+    if (kl.removed)
+      msg.push("Výkon bol zmazaný v Google kalendári – rozhodni v záložke Kalendár (" + kl.removed + ").");
     if (msg.length) {
       toast(msg.join(" "));
       refresh(false, "obnova po synchronizácii kalendára");
@@ -1774,7 +1952,10 @@
     calBusy.add(r.key);
     b.disabled = true;
     try {
-      const res = await api("calRemovedResolve", Object.assign({ key: r.key, start: r.start, action }, kl ? { cal: "kl" } : {}));
+      const res = await api(
+        "calRemovedResolve",
+        Object.assign({ key: r.key, start: r.start, action }, kl ? { cal: "kl" } : {}),
+      );
       toast(
         action === "cancel"
           ? res && res.cancelled
@@ -1870,7 +2051,7 @@
   }
   function filters() {
     let s =
-      '<div class="filters"><label class="field grow">Vyhľadať<input id="search" type="search" placeholder="Názov, obec, okres (aj RK, ZA…), kontakt"></label><label class="field">Okres<select id="district">' +
+      '<div class="filters"><label class="field grow">Vyhľadať<input id="search" type="search" placeholder="Názov, obec, okres (aj RK, ZA…), kontakt, telefón, e-mail"></label><label class="field">Okres<select id="district">' +
       options(
         [...new Set(scopeDevices().map((d) => d.district))].sort((a, b) => a.localeCompare(b, "sk")),
         "Všetky okresy",
@@ -1931,8 +2112,10 @@
     Bytča: "BY",
   };
   function filtered() {
-    const q = normalize($("search")?.value || "").trim(),
+    const raw = ($("search")?.value || "").trim(),
       dist = $("district")?.value;
+    // hľadanie telefónu: porovnajú sa len číslice (bez medzier, lomiek a predvoľby)
+    const q = /^[+\d\s/().-]{6,}$/.test(raw) && raw.replace(/\D/g, "").length >= 6 ? phoneDigits(raw) : normalize(raw);
     const codeDist = Object.keys(DISTRICT_CODES).find((k) => DISTRICT_CODES[k].toLowerCase() === q);
     let rows = view === "calls" ? data.calls : view === "history" ? historyRows : scopeDevices();
     return rows.filter(
@@ -1954,11 +2137,14 @@
             (mail ? a.district.localeCompare(b.district, "sk") || a.name.localeCompare(b.name, "sk") : 0),
         );
     }
-    if (["devices", "social", "schools", "companies"].includes(view))
+    if (["devices", "social", "schools", "companies"].includes(view)) {
       rows = rows.filter(
         (d) =>
           (!$("stage").value || d.status === $("stage").value) && (!$("type")?.value || d.type === $("type").value),
       );
+      const sk = SORTS[sortState.key];
+      if (sk) rows.sort((a, b) => sortState.dir * sk(a, b) || a.name.localeCompare(b.name, "sk"));
+    }
     if (view === "history")
       rows = rows
         .filter(
@@ -2093,7 +2279,13 @@
         );
       });
     } else {
-      heads = [view === "companies" ? "Firma" : "Zariadenie", "Okres / obec", "Stav", "Posledný kontakt", "Ďalší krok"];
+      heads = [
+        sortHead("name", view === "companies" ? "Firma" : "Zariadenie"),
+        sortHead("district", "Okres / obec"),
+        sortHead("status", "Stav"),
+        sortHead("last", "Posledný kontakt"),
+        "Ďalší krok",
+      ];
       body = rows.map(
         (d) =>
           "<tr><td>" +
@@ -2121,6 +2313,52 @@
       "</tr></thead><tbody>" +
       body.join("") +
       "</tbody></table></div>";
+    // popis stĺpca pri bunke – na telefóne sa riadok zobrazí ako karta s popismi (Styles.html, max-width 700px)
+    const labels = heads.map((h) =>
+      h
+        .replace(/<[^>]+>/g, "")
+        .replace(/[▲▼↕]/g, "")
+        .trim(),
+    );
+    $("results")
+      .querySelectorAll("tbody tr")
+      .forEach((tr) => [...tr.children].forEach((td, i) => labels[i] && td.setAttribute("data-label", labels[i])));
+  }
+  // triedenie Kontaktov klikom na hlavičku stĺpca (ďalší klik otočí poradie, tretí zruší); pamätá sa v zariadení
+  const SORTS = {
+    name: (a, b) => a.name.localeCompare(b.name, "sk"),
+    district: (a, b) =>
+      (a.district || "").localeCompare(b.district || "", "sk") || (a.city || "").localeCompare(b.city || "", "sk"),
+    status: (a, b) => (a.status || "").localeCompare(b.status || "", "sk"),
+    last: (a, b) => (a.lastContact || "").localeCompare(b.lastContact || ""),
+  };
+  let sortState = { key: "", dir: 1 };
+  try {
+    const s = JSON.parse(localStorage.getItem("ensafe-sort") || "null");
+    if (s && SORTS[s.key] && (s.dir === 1 || s.dir === -1)) sortState = s;
+  } catch (e) {}
+  function sortHead(key, label) {
+    const on = sortState.key === key;
+    return (
+      '<button type="button" class="sorth' +
+      (on ? " on" : "") +
+      '" data-sort="' +
+      key +
+      '" title="Zoradiť podľa stĺpca">' +
+      label +
+      '<span aria-hidden="true">' +
+      (on ? (sortState.dir > 0 ? " ▲" : " ▼") : " ↕") +
+      "</span></button>"
+    );
+  }
+  function setSort(key) {
+    if (sortState.key !== key) sortState = { key, dir: key === "last" ? -1 : 1 };
+    else if (sortState.dir === (key === "last" ? -1 : 1)) sortState.dir = -sortState.dir;
+    else sortState = { key: "", dir: 1 };
+    try {
+      localStorage.setItem("ensafe-sort", JSON.stringify(sortState));
+    } catch (e) {}
+    results();
   }
   const FKEYS = ["search", "district", "category", "stage", "period", "confirmed", "type", "activitytype", "visited"];
   let lastRendered = null;
@@ -2173,11 +2411,11 @@
             ? '<div id="mapslot"></div>'
             : view === "calendar"
               ? calView()
-            : view === "shipments"
-              ? subtabs() + shipView()
-              : g === "clients"
-                ? subtabs() + klView()
-              : subtabs() + (view === "companies" ? companySummary() : "") + filters();
+              : view === "shipments"
+                ? subtabs() + shipView()
+                : g === "clients"
+                  ? subtabs() + klView()
+                  : subtabs() + (view === "companies" ? companySummary() : "") + filters();
     if (same) {
       Object.keys(keep).forEach((id) => {
         const el = $(id);
@@ -2228,7 +2466,9 @@
           line("mail", mailLinks) +
           line("place", esc([d.address, d.district].filter(Boolean).join(", "))) +
           (d.web ? line("link", web(d.web)) : "") +
-          (data.readOnly ? "" : '<p><button class="btn" data-contactedit="' + d.row + '">Upraviť kontakt</button></p>') +
+          (data.readOnly
+            ? ""
+            : '<p><button class="btn" data-contactedit="' + d.row + '">Upraviť kontakt</button></p>') +
           buyerBox(d)) +
       '</div><div class="detailbox"><h3>Aktuálny stav</h3><p>' +
       esc(d.type) +
@@ -2335,7 +2575,7 @@
   }
   function openCall(row, preset) {
     if (saving) return;
-    if ($("detail").open) $("detail").close();
+    leaveCard(); // formulár z karty: po zatvorení sa karta otvorí znova
     devSearch(f().device);
     devOptions(f().device, "");
     f().status.innerHTML = data.statuses.map((s) => "<option>" + esc(s) + "</option>").join("");
@@ -2361,6 +2601,7 @@
       render();
     }
     if (b.dataset.detail) detail(b.dataset.detail);
+    if (b.dataset.sort && $("results")) setSort(b.dataset.sort);
     const ds = Object.assign({}, b.dataset);
     if (ds.call) afterRefresh(() => openCall(ds.call));
     if (ds.visit) afterRefresh(() => openVisit(ds.visit));
@@ -2456,6 +2697,14 @@
     });
     dlg.addEventListener("close", () => (formDirty[id] = false));
   });
+  // návrat na kartu zariadenia po uložení aj zrušení formulára (ak sa medzitým neotvorilo iné okno)
+  ["call", "visit", "calledit", "done"].forEach((id) =>
+    $(id).addEventListener("close", () => {
+      const r = cardBack;
+      cardBack = 0;
+      if (r && byRow.has(r) && !document.querySelector("dialog[open]")) detail(r);
+    }),
+  );
   // Písanie do vyhľadávania prekreslí tabuľku až po krátkej pauze (150 ms); výber vo filtroch hneď.
   let searchTimer = 0;
   $("content").addEventListener("input", (e) => {
@@ -2541,7 +2790,7 @@
   const vf = () => $("visitform").elements;
   function openVisit(row) {
     if (saving || visitSaving) return;
-    if ($("detail").open) $("detail").close();
+    leaveCard(); // formulár z karty: po zatvorení sa karta otvorí znova
     devSearch(vf().device);
     devOptions(vf().device, "");
     if (row) vf().device.value = row;
@@ -2685,7 +2934,7 @@
     if (saving || visitSaving || editSaving) return;
     const c = data.calls.find((c) => c.row === +row);
     if (!c) return;
-    if ($("detail").open) $("detail").close();
+    leaveCard(); // formulár z karty: po zatvorení sa karta otvorí znova
     editCall = c;
     $("calleditname").textContent = c.name;
     ef().date.value = c.date || "";
@@ -3173,11 +3422,15 @@
           // suma je podľa cenníka Flowii – ak sa líši od cien vo formulári, povie sa to
           (r.priceChanged && r.priceChanged.length
             ? " Cena vo Flowii je iná ako v dashboarde: " +
-              r.priceChanged.map((x) => x.name + " " + euro(x.flowii) + " (v dashboarde " + euro(x.dashboard) + ")").join(", ") +
+              r.priceChanged
+                .map((x) => x.name + " " + euro(x.flowii) + " (v dashboarde " + euro(x.dashboard) + ")")
+                .join(", ") +
               "."
             : "") +
           (r.priceMissing && r.priceMissing.length
-            ? " Cenu vo Flowii sa nepodarilo prečítať (" + r.priceMissing.join(", ") + ") – suma je odhad, over ju vo Flowii."
+            ? " Cenu vo Flowii sa nepodarilo prečítať (" +
+              r.priceMissing.join(", ") +
+              ") – suma je odhad, over ju vo Flowii."
             : ""),
       );
       refresh(true, "ponuka");
@@ -3558,14 +3811,14 @@
     $("donewarn").textContent =
       "Bez ďalšieho kroku a so stavom „" +
       st +
-      "“ sa zariadenie znova objaví v Úlohách. Doplň ďalší krok alebo zmeň stav.";
+      "“ sa zariadenie znova objaví v Mojich úlohách. Doplň ďalší krok alebo zmeň stav.";
     $("donewarn").hidden = !w;
   }
   function openDone(row) {
     if (saving || visitSaving || editSaving || doneSaving) return;
     const d = data.devices.find((x) => x.row === +row);
     if (!d) return;
-    if ($("detail").open) $("detail").close();
+    leaveCard(); // formulár z karty: po zatvorení sa karta otvorí znova
     doneDev = d;
     $("donename").textContent = d.name;
     df().done.value = d.taskText || d.action || "";
@@ -4723,7 +4976,7 @@
     ["Kontrola dokumentácie OPP", 12],
     ["Kontrola požiarnych zariadení", 12],
     ["Opakované oboznamovanie BOZP", 24],
-    ["Aktualizačná príprava – obsluha motorových vozíkov (VZV)", 60],
+    ["Pripomenúť: aktualizačná príprava VZV (zabezpečuje klient)", 60],
     ["Doplniť denník uzáverov", ""],
   ];
   let klDutyClient = "",
@@ -5072,14 +5325,11 @@
     ["Školenie OPP – osoby v mimopracovnom čase", 12],
     ["Odborná príprava protipožiarnej hliadky", 12],
     ["Oboznamovanie BOZP", 36],
-    ["Aktualizačná príprava – motorové vozíky (VZV)", 60],
   ];
   let klTrainClient = "",
     klEmpRow = 0;
   const klStaff = (c) =>
-    (data.employees || [])
-      .filter((e) => e.client === c.id)
-      .sort((a, b) => a.person.localeCompare(b.person, "sk"));
+    (data.employees || []).filter((e) => e.client === c.id).sort((a, b) => a.person.localeCompare(b.person, "sk"));
   const klLimit = (c) => [klAddDays(data.today, 30), c.next || ""].sort()[1];
   // posledné školenie každého druhu u zamestnanca: [{ type, date, months, dueAt, flag }]
   function klEmpTrainings(c, e) {
@@ -5192,9 +5442,7 @@
         ? '<p class="muted klleft">Odišli: ' +
           left
             .map((e) =>
-              can
-                ? '<button class="link" data-klemp="' + e.row + '">' + esc(e.person) + "</button>"
-                : esc(e.person),
+              can ? '<button class="link" data-klemp="' + e.row + '">' + esc(e.person) + "</button>" : esc(e.person),
             )
             .join(", ") +
           "</p>"
@@ -5317,7 +5565,10 @@
         $("kltrainerror").hidden = false;
       },
       kinds = klTrainRows()
-        .map((r) => ({ type: r.querySelector(".kltype").value.trim(), months: r.querySelector(".klmonths").value.trim() }))
+        .map((r) => ({
+          type: r.querySelector(".kltype").value.trim(),
+          months: r.querySelector(".klmonths").value.trim(),
+        }))
         .filter((k) => k.type || k.months),
       ids = [...$("kltrainstaff").querySelectorAll(".kltrainemp:checked")].map((i) => i.value),
       people = klPeopleOf(e.people.value);
@@ -5565,7 +5816,11 @@
       (c.planNote ? '<p class="notes">' + esc(c.planNote) + "</p>" : "") +
       '</div><div class="quick">' +
       (can
-        ? '<button class="btn" data-klplan="' + esc(c.id) + '">' + (has ? "Zmeniť plán" : "Naplánovať výkon") + "</button>"
+        ? '<button class="btn" data-klplan="' +
+          esc(c.id) +
+          '">' +
+          (has ? "Zmeniť plán" : "Naplánovať výkon") +
+          "</button>"
         : "") +
       '<button class="btn" data-klcaltoggle="1">' +
       (klCalOpen ? "Skryť kalendár" : "Kalendár výkonov") +
@@ -5704,7 +5959,13 @@
     if (e.date.value < data.today) return err("Termín výkonu nemôže byť v minulosti.");
     const start = e.date.value + "T" + (e.time.value || "00:00");
     try {
-      await klPlanSend(c, start, e.note.value.trim(), "Výkon naplánovaný na " + klPlanText(start) + ".", $("klplansave"));
+      await klPlanSend(
+        c,
+        start,
+        e.note.value.trim(),
+        "Výkon naplánovaný na " + klPlanText(start) + ".",
+        $("klplansave"),
+      );
     } catch (e2) {
       err("Uloženie zlyhalo: " + ((e2 && e2.message) || e2));
     }
@@ -5755,7 +6016,10 @@
     sel.value = list.some((x) => x.id === value) ? value : "";
   }
   const klPlaceWhere = (x) =>
-    x.city && !String(x.address || "").toLowerCase().includes(x.city.toLowerCase())
+    x.city &&
+    !String(x.address || "")
+      .toLowerCase()
+      .includes(x.city.toLowerCase())
       ? [x.address, x.city].filter(Boolean).join(", ")
       : x.address || x.city || "";
   // odkaz na mapu (navigácia): poloha, inak adresa
@@ -5896,8 +6160,7 @@
   }
   async function klPlaceCancel(btn) {
     const x = klPlaceCtx && (data.places || []).find((y) => y.row === klPlaceCtx.row);
-    if (!x || klSaving || !confirm("Zrušiť prevádzku „" + x.place + "“? Zapísané výkony ju budú mať naďalej."))
-      return;
+    if (!x || klSaving || !confirm("Zrušiť prevádzku „" + x.place + "“? Zapísané výkony ju budú mať naďalej.")) return;
     try {
       await klPlaceSend(
         { row: x.row, id: x.id, version: x.version, name: x.name, place: x.place, cancelled: true },
@@ -6273,7 +6536,11 @@
         );
       }
     } catch (e) {
-      err("Uloženie zlyhalo: " + ((e && e.message) || e) + (editing ? "" : " Rozpísaný výkon ostáva uložený v zariadení."));
+      err(
+        "Uloženie zlyhalo: " +
+          ((e && e.message) || e) +
+          (editing ? "" : " Rozpísaný výkon ostáva uložený v zariadení."),
+      );
     } finally {
       klSaving = false;
       if ($("klvykon").open) {

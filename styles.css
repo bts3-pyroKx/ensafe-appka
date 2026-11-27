@@ -315,6 +315,81 @@
     gap: 24px;
     margin-bottom: 24px;
   }
+  /* Prehľad: agenda dňa a súhrn klientov BOZP a OPP */
+  .agday {
+    padding: 14px 0 2px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  /* Prehľad: nadpisy oddielov EnSafe a Klienti BOZP a OPP */
+  .ovsec {
+    margin: 32px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--navy);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--navy);
+  }
+  .panel.agenda {
+    margin-bottom: 8px;
+  }
+  .agcols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 32px;
+  }
+  @media (max-width: 720px) {
+    .agcols {
+      grid-template-columns: 1fr;
+    }
+  }
+  .agmore {
+    padding: 0 24px 12px;
+  }
+  .agtag {
+    display: inline-block;
+    margin-right: 6px;
+    padding: 0 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--ok-tint);
+    color: var(--ok);
+  }
+  .agtag.kl {
+    background: var(--tone);
+    color: var(--blue);
+  }
+  .agempty {
+    margin: 0;
+    padding: 6px 0 12px;
+    font-size: 14px;
+  }
+  .list .item.ag-demo {
+    border-left: 3px solid var(--ok);
+    padding-left: 14px;
+  }
+  .list .item.ag-kl {
+    border-left: 3px solid var(--blue);
+    padding-left: 14px;
+  }
+  .list .item.ag-task {
+    border-left: 3px solid var(--line);
+    padding-left: 14px;
+  }
+  .klsum {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--line);
+    font-size: 14px;
+  }
   .panel {
     background: #fff;
     border: 1px solid var(--line);
@@ -794,6 +869,103 @@
   tbody tr:hover td {
     background: var(--surface);
   }
+  /* triedenie Kontaktov klikom na hlavičku stĺpca */
+  .sorth {
+    border: 0;
+    background: none;
+    padding: 0;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+  .sorth span {
+    opacity: 0.45;
+  }
+  .sorth.on {
+    color: var(--navy);
+  }
+  .sorth.on span {
+    opacity: 1;
+  }
+  /* telefón: riadky zoznamov ako karty pod sebou (popis stĺpca z data-label), väčšie tlačidlá na dotyk */
+  @media (max-width: 700px) {
+    #results table,
+    #results tbody {
+      display: block;
+    }
+    #results thead {
+      display: none;
+    }
+    #results thead:has(.sorth) {
+      display: block;
+    }
+    #results thead:has(.sorth) tr {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 16px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--navy);
+    }
+    #results thead:has(.sorth) th {
+      padding: 0;
+      border: 0;
+    }
+    #results thead:has(.sorth) th:not(:has(.sorth)) {
+      display: none;
+    }
+    #results tbody tr {
+      display: block;
+      position: relative;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+    #results tbody tr:has(.check) {
+      padding-left: 52px;
+    }
+    #results td {
+      display: block;
+      padding: 0;
+      border: 0;
+    }
+    #results td:has(> .check) {
+      position: absolute;
+      left: 14px;
+      top: 12px;
+      width: auto !important;
+    }
+    #results td[data-label]:not(:first-child) {
+      display: flow-root;
+      margin-top: 6px;
+      padding-left: 112px;
+    }
+    #results td[data-label]:not(:first-child)::before {
+      content: attr(data-label);
+      float: left;
+      width: 108px;
+      margin-left: -112px;
+      padding-top: 3px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    #results tr:has(.check) td:nth-child(2)::before {
+      display: none;
+    }
+    #results tr:has(.check) td:nth-child(2) {
+      margin-top: 0;
+      padding-left: 0;
+    }
+    #results tbody tr:hover td {
+      background: none;
+    }
+    .main .btn {
+      min-height: 40px;
+    }
+  }
   td small {
     display: block;
     margin-top: 4px;
@@ -1034,7 +1206,9 @@
     flex: 0 0 auto;
   }
   .klvisit .link,
-  .kldefpanel .link {
+  .kldefpanel .link,
+  .klsum .link,
+  .agempty .link {
     border: 0;
     background: none;
     color: var(--blue);
@@ -1044,7 +1218,9 @@
     text-align: left;
   }
   .klvisit .link:hover,
-  .kldefpanel .link:hover {
+  .kldefpanel .link:hover,
+  .klsum .link:hover,
+  .agempty .link:hover {
     text-decoration: underline;
   }
   .klrow.klhid {
