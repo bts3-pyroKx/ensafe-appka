@@ -2303,7 +2303,8 @@
           "</td><td>" +
           esc(d.lastContact ? format(d.lastContact) : "Neuvedený") +
           "</td><td>" +
-          esc(d.action || "—") +
+          esc(d.action || (d.deadline ? "Ďalší krok nevyplnený" : "—")) +
+          (d.deadline ? "<small>termín " + esc(format(d.deadline)) + "</small>" : "") +
           "</td></tr>",
       );
     }
@@ -2481,6 +2482,14 @@
       '</select><button class="btn" data-setstatus="' +
       d.row +
       '">Zmeniť stav</button></p>' +
+      // ďalší krok priamo pri stave – všetko podstatné na jedno pozretie
+      '<div class="nextstep"><span>Ďalší krok</span><p class="notes">' +
+      esc(d.action || "Zatiaľ neurčený") +
+      "</p><p>" +
+      (d.deadline
+        ? "Termín: " + esc(format(d.deadline)) + (d.category ? " " + catPill(d.category) : "")
+        : "Bez termínu") +
+      "</p></div>" +
       mailInfo(d) +
       "<p>Posledný kontakt: " +
       esc(d.lastContact ? format(d.lastContact) : "Neuvedený") +
@@ -2490,14 +2499,9 @@
       "</p><p>" +
       pill(d.order ? "Objednávka potvrdená" : "Objednávka zatiaľ nepotvrdená", d.order ? "success" : "") +
       "</p>" +
+      (d.products ? "<p>Produkty: " + esc(d.products) + "</p>" : "") +
       shipInfo(d) +
-      '</div><div class="detailbox"><h3>Ďalší krok</h3><p class="notes">' +
-      esc(d.action || "Zatiaľ neurčený") +
-      "</p><p>" +
-      esc(format(d.deadline)) +
-      "</p><p>" +
-      esc(d.products) +
-      '</p></div><div class="detailbox"><h3>Poznámky</h3><p class="notes">' +
+      '</div><div class="detailbox full"><h3>Poznámky</h3><p class="notes">' +
       esc(d.note || "Bez poznámky") +
       '</p><p class="muted">' +
       esc(d.businessNote) +
@@ -2946,6 +2950,20 @@
     ef().result.value = c.result;
     ef().note.value = c.note;
     ef().action.value = c.action;
+    // termín ďalšieho kroku zariadenia sa dá opraviť len pri jeho poslednom hovore (ten určuje aktuálnu úlohu)
+    const d = deviceByName(c.name),
+      latest =
+        !!d &&
+        !data.calls.some((x) => x !== c && normalize(x.name) === normalize(c.name) && (x.date || "") > (c.date || ""));
+    editCall.dl = latest ? d.deadline || "" : null;
+    $("calleddl").hidden = !latest;
+    ef().deadline.value = latest ? d.deadline || "" : "";
+    ef().deadline.min = latest && d.deadline && d.deadline < data.today ? "" : data.today;
+    $("calleddlnote").textContent = latest
+      ? ""
+      : d
+        ? "Termín ďalšieho kroku sa dá zmeniť len pri poslednom hovore zariadenia."
+        : "";
     $("calledterror").hidden = true;
     $("saveedit").disabled = !!window.PREVIEW_DATA;
     $("calledit").showModal();
@@ -2961,6 +2979,8 @@
       name: editCall.name,
       version: editCall.version,
       appointmentChanged: ef().appointment.value !== editCall.initialAppt,
+      deadlineChanged: editCall.dl !== null && ef().deadline.value !== editCall.dl,
+      deadline: ef().deadline.value,
     };
     ["date", "appointment", "phone", "person", "result", "note", "action"].forEach((k) => (p[k] = ef()[k].value));
     editSaving = true;
@@ -2973,9 +2993,10 @@
       toast(
         r && r.unchanged
           ? "Bez zmien – nič sa neukladalo."
-          : r && r.noteSynced
-            ? "Telefonát bol opravený v denníku aj v poznámke zariadenia."
-            : "Telefonát bol opravený v denníku hovorov.",
+          : "Telefonát bol opravený v denníku hovorov" +
+              (r && r.noteSynced ? ", v poznámke zariadenia" : "") +
+              (r && r.taskSynced ? " aj v úlohe zariadenia" : "") +
+              ".",
       );
       await applySaved(r);
     } catch (err) {
